@@ -15,6 +15,11 @@ We use:
 Windowing:
   - Skip windows where ANY selected output sample is NaN/Inf
   - Channels-first tensors for Conv1d: x=(C_in, W), y=(C_out, W)
+
+Denoising (optional, for noisy IK / ID):
+  - Temporal median filter (impulse / double-peak spikes)
+  - Zero-phase Butterworth low-pass (default 4 Hz)
+  Velocities are always computed from the final filtered positions.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from typing import Union
 
 import numpy as np
@@ -44,7 +49,8 @@ except ImportError:
     HAS_SCIPY = False
 
 try:
-    from scipy.signal import butter, sosfiltfilt
+    from scipy.signal import butter, medfilt, sosfiltfilt
+
     HAS_SCIPY_SIGNAL = True
 except ImportError:
     HAS_SCIPY_SIGNAL = False
@@ -103,6 +109,57 @@ MOMENT_NAMES: List[str] = [
     "mtp_angle_r",
     "mtp_angle_l",
 ]
+
+# Unilateral mode: negate left hip adduction & rotation (IK, velocities, moments) so L matches R sign convention.
+UNILATERAL_FLIP_IK_INDICES = (
+    IK_DOF_NAMES.index("hip_adduction_l"),
+    IK_DOF_NAMES.index("hip_rotation_l"),
+)
+UNILATERAL_FLIP_MOMENT_INDICES = (
+    MOMENT_NAMES.index("hip_adduction_l"),
+    MOMENT_NAMES.index("hip_rotation_l"),
+)
+
+
+def normalize_laterality(laterality: Optional[str]) -> str:
+    """
+    ``bilateral`` (alias: ``both``): use all sides as stored.
+    ``unilateral``: same DOFs as bilateral; left hip adduction & rotation are negated
+    to align L/R sign convention (right unchanged).
+    """
+    x = (laterality or "bilateral").strip().lower()
+    if x in ("both", "bilateral"):
+        return "bilateral"
+    if x == "unilateral":
+        return "unilateral"
+    if x in ("right", "left"):
+        raise ValueError(
+            f"laterality {laterality!r} is no longer supported; use 'bilateral' or 'unilateral' "
+            "(see dataset.normalize_laterality docstring)."
+        )
+    raise ValueError(
+        f"Unknown laterality {laterality!r}; expected 'bilateral' or 'unilateral' (alias: 'both' -> bilateral)."
+    )
+
+
+def _apply_unilateral_left_hip_flip_inplace(
+    positions: np.ndarray,
+    velocities: np.ndarray,
+    moments: np.ndarray,
+) -> None:
+    for j in UNILATERAL_FLIP_IK_INDICES:
+        positions[:, j] *= -1.0
+        velocities[:, j] *= -1.0
+    for j in UNILATERAL_FLIP_MOMENT_INDICES:
+        moments[:, j] *= -1.0
+
+
+def _apply_unilateral_flip_to_trial(trial: Dict[str, Any]) -> None:
+    _apply_unilateral_left_hip_flip_inplace(
+        trial["positions"],
+        trial["velocities"],
+        trial["moments"],
+    )
 
 
 # ---- Output moment index sets (indices into MOMENT_NAMES) --------------
@@ -309,7 +366,7 @@ def _compute_velocity(pos: np.ndarray, time: np.ndarray) -> np.ndarray:
 def _lowpass_zero_phase(
     data: np.ndarray,
     time: np.ndarray,
-    cutoff_hz: float = 6.0,
+    cutoff_hz: float = 4.0,
     order: int = 4,
 ) -> np.ndarray:
     """
@@ -341,6 +398,82 @@ def _lowpass_zero_phase(
         return data
 
 
+def _median_filter_timeseries(data: np.ndarray, kernel_size: int) -> np.ndarray:
+    """
+    Short temporal median filter per channel (removes impulse / spike noise).
+    ``kernel_size`` is coerced to an odd integer in [3, T].
+    NaNs are filled with the column median for filtering only, then restored.
+    """
+    if not HAS_SCIPY_SIGNAL or kernel_size < 3:
+        return data
+    if data.ndim != 2 or data.shape[0] < 3:
+        return data
+    T = data.shape[0]
+    ks = int(kernel_size)
+    if ks % 2 == 0:
+        ks += 1
+    ks = max(3, min(ks, T if T % 2 == 1 else T - 1))
+    if ks < 3:
+        return data
+
+    x = data.astype(np.float64)
+    out = np.empty_like(x)
+    for j in range(x.shape[1]):
+        col = x[:, j].copy()
+        if not np.any(np.isfinite(col)):
+            out[:, j] = col
+            continue
+        nan_m = ~np.isfinite(col)
+        fill = float(np.nanmedian(col))
+        col[nan_m] = fill
+        try:
+            out[:, j] = medfilt(col, kernel_size=ks)
+        except Exception:
+            out[:, j] = x[:, j]
+        out[nan_m, j] = np.nan
+    return out
+
+
+def _denoise_pos_and_moments(
+    pos: np.ndarray,
+    moments: np.ndarray,
+    time: np.ndarray,
+    *,
+    median_kernel_samples: int,
+    apply_lowpass_filter: bool,
+    lowpass_cutoff_hz: float,
+    lowpass_order: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Denoise pipeline for IK positions (rad) and ID moments.
+
+    Order: optional median → optional zero-phase Butterworth low-pass.
+    """
+    pos = pos.astype(np.float64)
+    moments = moments.astype(np.float64)
+
+    def _mom_median(m: np.ndarray) -> np.ndarray:
+        finite = np.isfinite(m)
+        m_fill = np.where(finite, m, 0.0)
+        m_f = _median_filter_timeseries(m_fill, median_kernel_samples)
+        return np.where(finite, m_f, np.nan)
+
+    if median_kernel_samples >= 3:
+        pos = _median_filter_timeseries(pos, median_kernel_samples)
+        moments = _mom_median(moments)
+
+    if apply_lowpass_filter:
+        pos = _lowpass_zero_phase(pos, time, cutoff_hz=lowpass_cutoff_hz, order=lowpass_order)
+        finite_mom = np.isfinite(moments)
+        moments_fill = np.where(finite_mom, moments, 0.0)
+        moments_filt = _lowpass_zero_phase(
+            moments_fill, time, cutoff_hz=lowpass_cutoff_hz, order=lowpass_order
+        )
+        moments = np.where(finite_mom, moments_filt, np.nan)
+
+    return pos, moments
+
+
 def _read_h5_opensim_table(dset) -> Tuple[List[str], np.ndarray]:
     """
     Read one OpenSim table stored in H5 with:
@@ -354,6 +487,27 @@ def _read_h5_opensim_table(dset) -> Tuple[List[str], np.ndarray]:
     if data.ndim == 1:
         data = data[None, :]
     return columns, data
+
+
+def _ik_time_and_pos_deg(
+    ik_cols: List[str], ik_data: np.ndarray
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Build time and joint positions in degrees for all IK_DOF_NAMES.
+
+    Some exports (e.g. MeMo / partial Theia IK) omit pelvis translation, lumbar,
+    or MTP columns. Missing coordinates are filled with 0 deg so the stacked
+    shape stays (T, len(IK_DOF_NAMES)) and matches full-body pipelines.
+    """
+    if "time" not in ik_cols:
+        return None
+    time = ik_data[:, ik_cols.index("time")]
+    n = len(time)
+    pos_deg = np.zeros((n, len(IK_DOF_NAMES)), dtype=np.float64)
+    for j, name in enumerate(IK_DOF_NAMES):
+        if name in ik_cols:
+            pos_deg[:, j] = ik_data[:, ik_cols.index(name)]
+    return time, pos_deg
 
 
 def _default_h5_dir_from_processed_root(data_dir: str) -> str:
@@ -400,8 +554,9 @@ def load_trial_from_processed(
     root_dir: str,
     meta_map: Dict[str, Dict],
     apply_lowpass_filter: bool = False,
-    lowpass_cutoff_hz: float = 6.0,
+    lowpass_cutoff_hz: float = 4.0,
     lowpass_order: int = 4,
+    median_kernel_samples: int = 0,
 ) -> Optional[Dict]:
     """
     Load one processed trial directory into arrays:
@@ -433,17 +588,12 @@ def load_trial_from_processed(
     if not np.isfinite(mass) or mass <= 0:
         mass = np.nan
 
-    # IK
+    # IK (allow partial column sets; pad missing DOFs with 0 deg)
     ik_cols, ik_data = _read_opensim_table(ik_path)
-    if "time" not in ik_cols:
+    ik_tp = _ik_time_and_pos_deg(ik_cols, ik_data)
+    if ik_tp is None:
         return None
-    time = ik_data[:, ik_cols.index("time")]
-    pos_deg = []
-    for name in IK_DOF_NAMES:
-        if name not in ik_cols:
-            return None
-        pos_deg.append(ik_data[:, ik_cols.index(name)])
-    pos_deg = np.stack(pos_deg, axis=1)  # (T, 23)
+    time, pos_deg = ik_tp
     pos = np.deg2rad(pos_deg)
     # ID
     id_cols, id_data = _read_opensim_table(id_path)
@@ -454,7 +604,6 @@ def load_trial_from_processed(
     n = min(len(time), len(id_time))
     time = time[:n]
     pos = pos[:n]
-    vel = vel[:n]
     id_data = id_data[:n]
 
     moments = np.full((n, len(MOMENT_NAMES)), np.nan, dtype=np.float64)
@@ -467,24 +616,16 @@ def load_trial_from_processed(
             # Windowing will drop windows where selected output channels are non-finite.
             pass
 
-    # Optional zero-phase denoising for noisy datasets:
-    # filter IK positions and ID moments, then compute velocities from filtered IK.
-    if apply_lowpass_filter:
-        pos = _lowpass_zero_phase(
+    if median_kernel_samples >= 3 or apply_lowpass_filter:
+        pos, moments = _denoise_pos_and_moments(
             pos,
+            moments,
             time,
-            cutoff_hz=lowpass_cutoff_hz,
-            order=lowpass_order,
+            median_kernel_samples=median_kernel_samples,
+            apply_lowpass_filter=apply_lowpass_filter,
+            lowpass_cutoff_hz=lowpass_cutoff_hz,
+            lowpass_order=lowpass_order,
         )
-        finite_mom = np.isfinite(moments)
-        moments_fill = np.where(finite_mom, moments, 0.0)
-        moments_filt = _lowpass_zero_phase(
-            moments_fill,
-            time,
-            cutoff_hz=lowpass_cutoff_hz,
-            order=lowpass_order,
-        )
-        moments = np.where(finite_mom, moments_filt, np.nan)
 
     vel = _compute_velocity(pos, time)
 
@@ -527,13 +668,14 @@ class KineticsTCNDataset(Dataset):
         input_indices: Union[Optional[List[int]], object] = _UNSET,
         input_mode: str = "lower_limb",
         output_mode: str = "lower_limb",
-        laterality: str = "both",
+        laterality: str = "bilateral",
         subject_ids: Optional[List[str]] = None,
         b3d_files: Optional[List[Path]] = None,  # interpreted as explicit trial_dirs if provided
         preload_trials: bool = False,
         apply_lowpass_filter: bool = True,
-        lowpass_cutoff_hz: float = 6.0,
+        lowpass_cutoff_hz: float = 4.0,
         lowpass_order: int = 4,
+        median_kernel_samples: int = 0,
     ):
         if data_dir is None:
             raise ValueError("data_dir must point to processed Camargo root")
@@ -545,33 +687,23 @@ class KineticsTCNDataset(Dataset):
         self.apply_lowpass_filter = bool(apply_lowpass_filter)
         self.lowpass_cutoff_hz = float(lowpass_cutoff_hz)
         self.lowpass_order = int(lowpass_order)
+        self.median_kernel_samples = int(median_kernel_samples)
 
-        laterality = (laterality or "both").lower()
-        if laterality not in {"both", "right", "left"}:
-            raise ValueError(f"laterality must be one of {{'both','right','left'}}, got {laterality!r}")
+        self.laterality = normalize_laterality(laterality)
+        self._use_unilateral_flip = self.laterality == "unilateral"
+
         subject_ids_norm: Optional[List[str]] = None
         if subject_ids is not None:
             subject_ids_norm = [s.upper() for s in subject_ids]
 
-        def _filter_indices_by_laterality(
-            indices: List[int],
-            names: List[str],
-            side: str,
-        ) -> List[int]:
-            if side == "both":
-                return indices
-            suffix = "_r" if side == "right" else "_l"
-            return [i for i in indices if names[i].endswith(suffix)]
-
-        # If indices are not provided, default to lower body hip(3DoF) + knee(1DoF) + ankle(1DoF),
-        # with optional unilateral filtering.
+        # If indices are not provided, default to lower body hip(3DoF) + knee(1DoF) + ankle(1DoF).
+        # Bilateral vs unilateral uses the same DOF sets; unilateral applies a sign flip per trial.
         if moment_indices is self._UNSET:
             base = OUTPUT_MODE_INDICES.get(output_mode, LOWER_LIMB_MOMENT_INDICES)
             if base is None:
-                base_indices = list(range(len(MOMENT_NAMES)))
+                self.moment_indices = list(range(len(MOMENT_NAMES)))
             else:
-                base_indices = list(base)
-            self.moment_indices = _filter_indices_by_laterality(base_indices, MOMENT_NAMES, laterality)
+                self.moment_indices = list(base)
         else:
             # can be None (= all outputs)
             self.moment_indices = moment_indices
@@ -579,10 +711,9 @@ class KineticsTCNDataset(Dataset):
         if input_indices is self._UNSET:
             base = INPUT_MODE_INDICES.get(input_mode, LOWER_LIMB_INPUT_INDICES)
             if base is None:
-                base_indices = list(range(len(IK_DOF_NAMES)))
+                self.input_indices = list(range(len(IK_DOF_NAMES)))
             else:
-                base_indices = list(base)
-            self.input_indices = _filter_indices_by_laterality(base_indices, IK_DOF_NAMES, laterality)
+                self.input_indices = list(base)
         else:
             # can be None (= all inputs)
             self.input_indices = input_indices
@@ -604,8 +735,11 @@ class KineticsTCNDataset(Dataset):
             print("[KineticsTCNDataset] h5py not available; falling back to text .mot/.sto.")
         elif use_h5 and not Path(requested_h5_dir).exists():
             print(f"[KineticsTCNDataset] H5 dir not found ({requested_h5_dir}); falling back to text .mot/.sto.")
-        if self.apply_lowpass_filter and not HAS_SCIPY_SIGNAL:
-            print("[KineticsTCNDataset] scipy.signal unavailable; low-pass filtering disabled.")
+        if (self.apply_lowpass_filter or self.median_kernel_samples >= 3) and not HAS_SCIPY_SIGNAL:
+            print(
+                "[KineticsTCNDataset] scipy.signal unavailable; "
+                "low-pass / median denoising disabled."
+            )
 
         if self.use_h5:
             if b3d_files is not None:
@@ -690,9 +824,13 @@ class KineticsTCNDataset(Dataset):
                     apply_lowpass_filter=self.apply_lowpass_filter,
                     lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                     lowpass_order=self.lowpass_order,
+                    median_kernel_samples=self.median_kernel_samples,
                 )
             if trial is None:
                 continue
+
+            if self._use_unilateral_flip:
+                _apply_unilateral_flip_to_trial(trial)
 
             if self.use_h5:
                 t_idx = len(valid_h5_refs)
@@ -784,8 +922,14 @@ class KineticsTCNDataset(Dataset):
             ik_cols, ik_data = _read_h5_opensim_table(ik_group[ik_key])
             id_cols, id_data = _read_h5_opensim_table(id_group[id_key])
 
-        if "time" not in ik_cols or "time" not in id_cols:
+        if "time" not in id_cols:
             return None
+
+        ik_tp = _ik_time_and_pos_deg(ik_cols, ik_data)
+        if ik_tp is None:
+            return None
+        time, pos_deg = ik_tp
+        pos = np.deg2rad(pos_deg)
 
         mass_val = self.meta_map.get(subj_id, {}).get(
             "weight_kg",
@@ -796,15 +940,6 @@ class KineticsTCNDataset(Dataset):
         # Keep mass for completeness, but don't reject trials when metadata is missing.
         if not np.isfinite(mass) or mass <= 0:
             mass = np.nan
-
-        time = ik_data[:, ik_cols.index("time")]
-        pos_deg = []
-        for name in IK_DOF_NAMES:
-            if name not in ik_cols:
-                return None
-            pos_deg.append(ik_data[:, ik_cols.index(name)])
-        pos_deg = np.stack(pos_deg, axis=1)
-        pos = np.deg2rad(pos_deg)
 
         id_time = id_data[:, id_cols.index("time")]
         n = min(len(time), len(id_time))
@@ -822,24 +957,16 @@ class KineticsTCNDataset(Dataset):
                 # Windowing will drop windows where selected output channels are non-finite.
                 pass
 
-        # Optional zero-phase denoising for noisy datasets:
-        # filter IK positions and ID moments, then compute velocities from filtered IK.
-        if self.apply_lowpass_filter:
-            pos = _lowpass_zero_phase(
+        if self.median_kernel_samples >= 3 or self.apply_lowpass_filter:
+            pos, moments = _denoise_pos_and_moments(
                 pos,
+                moments,
                 time,
-                cutoff_hz=self.lowpass_cutoff_hz,
-                order=self.lowpass_order,
+                median_kernel_samples=self.median_kernel_samples,
+                apply_lowpass_filter=self.apply_lowpass_filter,
+                lowpass_cutoff_hz=self.lowpass_cutoff_hz,
+                lowpass_order=self.lowpass_order,
             )
-            finite_mom = np.isfinite(moments)
-            moments_fill = np.where(finite_mom, moments, 0.0)
-            moments_filt = _lowpass_zero_phase(
-                moments_fill,
-                time,
-                cutoff_hz=self.lowpass_cutoff_hz,
-                order=self.lowpass_order,
-            )
-            moments = np.where(finite_mom, moments_filt, np.nan)
 
         vel = _compute_velocity(pos, time)
 
@@ -875,10 +1002,14 @@ class KineticsTCNDataset(Dataset):
                 apply_lowpass_filter=self.apply_lowpass_filter,
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
+                median_kernel_samples=self.median_kernel_samples,
             )
             label = td
         if trial is None:
             raise RuntimeError(f"Failed to reload trial: {label}")
+
+        if self._use_unilateral_flip:
+            _apply_unilateral_flip_to_trial(trial)
 
         self._trial_cache[t_idx] = trial
         return trial

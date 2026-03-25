@@ -145,32 +145,26 @@ def infer_full_trial(
     return pred.astype(np.float32), y_true.astype(np.float32)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Interactive inference plots on one MeMo trial")
-    parser.add_argument("--checkpoint", type=str, required=True)
-    parser.add_argument("--memo-root", type=str, default="/media/metamobility3/Samsung_T51/Processed/MeMo")
-    parser.add_argument("--subject-id", type=str, required=True, help="Example: S056")
-    parser.add_argument("--condition", type=str, required=True, help="Example: dynamic_walk_1")
-    parser.add_argument("--trial", type=str, default="trial_01")
-    parser.add_argument("--output-dir", type=str, default="runs/memo_trial_inference")
-    parser.add_argument(
-        "--write-combined-html",
-        action="store_true",
-        help="Also write one combined multi-panel interactive HTML for all outputs.",
-    )
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    args = parser.parse_args()
-
-    out_dir = Path(args.output_dir)
+def run_single_trial_inference(
+    *,
+    model: torch.nn.Module,
+    input_indices: List[int] | None,
+    moment_indices: List[int] | None,
+    ckpt_dof_names: List[str] | None,
+    window_size: int,
+    memo_root: Path,
+    subject_id: str,
+    condition: str,
+    trial: str,
+    out_dir: Path,
+    write_combined_html: bool,
+    device: str,
+    checkpoint_path: str | None = None,
+) -> None:
+    """Load one MeMo trial, run sliding-window inference, write Plotly HTML."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    model, input_indices, moment_indices, dof_names, window_size = load_checkpoint_model(
-        Path(args.checkpoint), args.device
-    )
-
-    time, pos, vel, moments = load_memo_trial(
-        Path(args.memo_root), args.subject_id, args.condition, args.trial
-    )
+    time, pos, vel, moments = load_memo_trial(memo_root, subject_id, condition, trial)
     pred, true = infer_full_trial(
         model=model,
         pos=pos,
@@ -179,9 +173,10 @@ def main() -> None:
         input_indices=input_indices,
         moment_indices=moment_indices,
         window_size=window_size,
-        device=args.device,
+        device=device,
     )
 
+    dof_names = ckpt_dof_names
     if dof_names is None:
         dof_names = [f"dof_{i}" for i in range(pred.shape[1])]
 
@@ -189,7 +184,6 @@ def main() -> None:
     saved_html = 0
     for c in range(pred.shape[1]):
         name = dof_names[c] if c < len(dof_names) else f"dof_{c}"
-        # GT may include NaNs if a channel is missing in the source .sto.
         gt = true[:, c]
         fig = go.Figure()
         fig.add_trace(
@@ -199,7 +193,7 @@ def main() -> None:
                 mode="lines",
                 name="Ground Truth",
                 line=dict(width=2),
-                connectgaps=False,  # keep NaN gaps visible
+                connectgaps=False,
             )
         )
         fig.add_trace(
@@ -212,7 +206,7 @@ def main() -> None:
             )
         )
         fig.update_layout(
-            title=f"{args.subject_id} {args.condition} {args.trial} — {name}",
+            title=f"{subject_id} {condition} {trial} — {name}",
             xaxis_title="Time (s)",
             yaxis_title=f"{name} (N·m/kg)",
             hovermode="x unified",
@@ -221,11 +215,11 @@ def main() -> None:
         )
         fig.update_xaxes(showgrid=True, gridcolor="rgba(0,0,0,0.1)")
         fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.1)")
-        out_path = out_dir / f"{args.subject_id}_{args.condition}_{args.trial}_{name}.html"
+        out_path = out_dir / f"{subject_id}_{condition}_{trial}_{name}.html"
         fig.write_html(str(out_path), include_plotlyjs="cdn", full_html=True)
         saved_html += 1
 
-    if args.write_combined_html:
+    if write_combined_html:
         n = pred.shape[1]
         fig_all = make_subplots(
             rows=n,
@@ -266,34 +260,70 @@ def main() -> None:
             fig_all.update_yaxes(title_text=name, row=c + 1, col=1)
         fig_all.update_layout(
             height=max(320 * n, 700),
-            title=f"{args.subject_id} {args.condition} {args.trial} — all outputs",
+            title=f"{subject_id} {condition} {trial} — all outputs",
             template="plotly_white",
             hovermode="x unified",
         )
         fig_all.update_xaxes(title_text="Time (s)", row=n, col=1)
-        combined_path = out_dir / f"{args.subject_id}_{args.condition}_{args.trial}_all_outputs.html"
+        combined_path = out_dir / f"{subject_id}_{condition}_{trial}_all_outputs.html"
         fig_all.write_html(str(combined_path), include_plotlyjs="cdn", full_html=True)
 
-    # Save a small run manifest for reproducibility.
     with open(out_dir / "inference_manifest.json", "w") as f:
         json.dump(
             {
-                "checkpoint": args.checkpoint,
-                "memo_root": args.memo_root,
-                "subject_id": args.subject_id,
-                "condition": args.condition,
-                "trial": args.trial,
+                "checkpoint": checkpoint_path,
+                "memo_root": str(memo_root),
+                "subject_id": subject_id,
+                "condition": condition,
+                "trial": trial,
                 "window_size": window_size,
                 "n_outputs": pred.shape[1],
                 "output_dof_names": dof_names[: pred.shape[1]],
                 "plot_format": "html_plotly",
-                "write_combined_html": bool(args.write_combined_html),
+                "write_combined_html": bool(write_combined_html),
             },
             f,
             indent=2,
         )
 
     print(f"Saved {saved_html} interactive per-joint HTML plots to: {out_dir}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Interactive inference plots on one MeMo trial")
+    parser.add_argument("--checkpoint", type=str, required=True)
+    parser.add_argument("--memo-root", type=str, default="/media/metamobility3/Samsung_T51/Processed/MeMo")
+    parser.add_argument("--subject-id", type=str, required=True, help="Example: S056")
+    parser.add_argument("--condition", type=str, required=True, help="Example: dynamic_walk_1")
+    parser.add_argument("--trial", type=str, default="trial_01")
+    parser.add_argument("--output-dir", type=str, default="runs/memo_trial_inference")
+    parser.add_argument(
+        "--write-combined-html",
+        action="store_true",
+        help="Also write one combined multi-panel interactive HTML for all outputs.",
+    )
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    args = parser.parse_args()
+
+    out_dir = Path(args.output_dir)
+    model, input_indices, moment_indices, dof_names, window_size = load_checkpoint_model(
+        Path(args.checkpoint), args.device
+    )
+    run_single_trial_inference(
+        model=model,
+        input_indices=input_indices,
+        moment_indices=moment_indices,
+        ckpt_dof_names=dof_names,
+        window_size=window_size,
+        memo_root=Path(args.memo_root),
+        subject_id=args.subject_id,
+        condition=args.condition,
+        trial=args.trial,
+        out_dir=out_dir,
+        write_combined_html=bool(args.write_combined_html),
+        device=args.device,
+        checkpoint_path=str(args.checkpoint),
+    )
 
 
 if __name__ == "__main__":

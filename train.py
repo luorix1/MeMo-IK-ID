@@ -179,7 +179,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=str, default="runs/tcn_run")
     parser.add_argument("--window-size", type=int, default=200)
     parser.add_argument("--stride", type=int, default=50)
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--lr", type=float, default=5e-6)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
@@ -203,6 +203,27 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--walking-only", action="store_true", default=True)
     parser.add_argument("--no-walking-only", dest="walking_only", action="store_false")
+    parser.add_argument(
+        "--no-lowpass",
+        action="store_true",
+        help="Disable Butterworth low-pass in the dataset loader (median filter still applies if set).",
+    )
+    parser.add_argument(
+        "--lowpass-cutoff-hz",
+        type=float,
+        default=4.0,
+        help="Zero-phase Butterworth low-pass cutoff (Hz). Try 3–6 for gait; lower = smoother.",
+    )
+    parser.add_argument("--lowpass-order", type=int, default=4)
+    parser.add_argument(
+        "--median-kernel-samples",
+        type=int,
+        default=0,
+        help=(
+            "Temporal median kernel length (samples, >=3, odd enforced). "
+            "Try 5–9 at ~200 Hz to suppress impulse / double-peak noise before LPF."
+        ),
+    )
     parser.add_argument("--input-mode", type=str, default="lower_limb",
                         choices=["full", "lower_limb", "sagittal"],
                         help=(
@@ -224,12 +245,12 @@ def main() -> None:
     parser.add_argument(
         "--laterality",
         type=str,
-        default="both",
-        choices=["both", "right", "left"],
+        default="bilateral",
+        choices=["bilateral", "unilateral", "both"],
         help=(
-            "Which side to model. 'both' uses R/L (default). "
-            "'right' trains right kinematics -> right joint moments. "
-            "'left' trains left kinematics -> left joint moments."
+            "bilateral (alias: both): use all R/L channels as in the files. "
+            "unilateral: same DOFs; negate left hip adduction & rotation (angles, velocities, moments) "
+            "so both legs share one sign convention; right side unchanged."
         ),
     )
     parser.add_argument(
@@ -329,6 +350,17 @@ def main() -> None:
     print("=" * 70)
     print("LOADING TRAINING DATA")
     print("=" * 70)
+    ds_denoise_kw = dict(
+        apply_lowpass_filter=not args.no_lowpass,
+        lowpass_cutoff_hz=args.lowpass_cutoff_hz,
+        lowpass_order=args.lowpass_order,
+        median_kernel_samples=args.median_kernel_samples,
+    )
+    print(
+        f"  Dataset denoise: LPF={ds_denoise_kw['apply_lowpass_filter']} "
+        f"({ds_denoise_kw['lowpass_cutoff_hz']} Hz, order {ds_denoise_kw['lowpass_order']}), "
+        f"median_k={args.median_kernel_samples}"
+    )
     if is_h5_only_layout:
         train_ds = KineticsTCNDataset(
             data_dir=args.train_dir,
@@ -343,6 +375,7 @@ def main() -> None:
             output_mode=args.output_mode,
             laterality=args.laterality,
             max_files=args.max_train_files,
+            **ds_denoise_kw,
         )
     else:
         train_ds = KineticsTCNDataset(
@@ -355,6 +388,7 @@ def main() -> None:
             input_mode=args.input_mode,
             output_mode=args.output_mode,
             laterality=args.laterality,
+            **ds_denoise_kw,
         )
 
     train_loader = DataLoader(
@@ -383,6 +417,7 @@ def main() -> None:
                 output_mode=args.output_mode,
                 laterality=args.laterality,
                 max_files=args.max_val_files,
+                **ds_denoise_kw,
             )
         else:
             val_ds = KineticsTCNDataset(
@@ -396,6 +431,7 @@ def main() -> None:
                 input_mode=args.input_mode,
                 output_mode=args.output_mode,
                 laterality=args.laterality,
+                **ds_denoise_kw,
             )
         val_loader = DataLoader(
             val_ds, batch_size=args.batch_size, shuffle=False,

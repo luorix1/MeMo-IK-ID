@@ -552,20 +552,39 @@ def main() -> None:
             stats=stats,
         )
 
-    # If train ran a unilateral model, use the same laterality from config.json.
-    laterality = None
+    # Match training: input/output modes and laterality from config.json when available.
     if run_cfg is not None:
-        laterality = run_cfg.get("laterality", None)
-    if laterality in {"right", "left"}:
         test_ds_kwargs.update(
             input_mode=run_cfg.get("input_mode", input_mode),
             output_mode=run_cfg.get("output_mode", output_mode),
-            laterality=laterality,
+            laterality=run_cfg.get("laterality", "bilateral"),
         )
     else:
         test_ds_kwargs.update(
             input_indices=input_indices,
             moment_indices=moment_indices,
+        )
+
+    # Match training-time denoising when saved in config.json (train.py writes vars(args)).
+    if run_cfg is not None and any(
+        k in run_cfg
+        for k in (
+            "no_lowpass",
+            "lowpass_cutoff_hz",
+            "lowpass_order",
+            "median_kernel_samples",
+        )
+    ):
+        test_ds_kwargs.update(
+            apply_lowpass_filter=not bool(run_cfg.get("no_lowpass", False)),
+            lowpass_cutoff_hz=float(run_cfg.get("lowpass_cutoff_hz", 4.0)),
+            lowpass_order=int(run_cfg.get("lowpass_order", 4)),
+            median_kernel_samples=int(run_cfg.get("median_kernel_samples", 0)),
+        )
+        print(
+            f"  Dataset denoise (from config.json): LPF={test_ds_kwargs['apply_lowpass_filter']} "
+            f"({test_ds_kwargs['lowpass_cutoff_hz']} Hz), "
+            f"median_k={test_ds_kwargs['median_kernel_samples']}"
         )
 
     test_ds = KineticsTCNDataset(**test_ds_kwargs)
