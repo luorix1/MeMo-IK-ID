@@ -15,6 +15,7 @@ We use:
 Windowing:
   - Skip windows where ANY selected output sample is NaN/Inf
   - Channels-first tensors for Conv1d: x=(C_in, W), y=(C_out, W)
+  - Uniform sliding-window step ``stride`` (default 1 sample between starts; no per-task variation).
 
 Denoising (optional, for noisy IK / ID):
   - Temporal median filter (impulse / double-peak spikes)
@@ -25,6 +26,7 @@ Denoising (optional, for noisy IK / ID):
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -241,16 +243,281 @@ def is_walking_condition(condition_dir: Path) -> bool:
     # Scherpereel & Molinaro_Scherpereel: normal_walk_*, dynamic_walk_*, incline_walk_*, ...
     include = (
         ("levelground" in name)
-        or ("ramp" in name)
         or ("incline" in name)
         or ("stair" in name)
         or ("treadmill" in name)
-        or ("normal_walk" in name)
-        or ("dynamic_walk" in name)
     )
     # Common non-walking conditions.
     exclude = ("static" in name)
     return bool(include and not exclude)
+
+
+def is_levelground_subset_condition(condition_name: str) -> bool:
+    """
+    True for "level-included" task names (case-insensitive):
+
+      levelground_*, treadmill_normal_walk*, treadmill_transient*, treadmill_0p*,
+      treadmill_1p*, treadmill_2p*, treadmill_unspecified_speed*
+    """
+    n = (condition_name or "").lower()
+    if n.startswith("levelground_"):
+        return True
+    if n.startswith("treadmill_normal_walk"):
+        return True
+    if n.startswith("treadmill_transient"):
+        return True
+    if n.startswith("treadmill_0p"):
+        return True
+    if n.startswith("treadmill_1p"):
+        return True
+    if n.startswith("treadmill_2p"):
+        return True
+    if n.startswith("treadmill_unspecified_speed"):
+        return True
+    return False
+
+
+def include_condition_for_dataset(
+    condition_name: str,
+    *,
+    walking_only: bool,
+    levelground_only: bool,
+) -> bool:
+    """Whether to include an H5 group / trial-folder condition in KineticsTCNDataset."""
+    if levelground_only:
+        return is_levelground_subset_condition(condition_name)
+    if walking_only:
+        return is_walking_condition(Path(condition_name))
+    return True
+
+
+# MeMo / Camargo-style locomotion prefixes (see memo_task_duration_composition.py).
+LOC_CONDITION_FAMILY_KEYS: Tuple[str, ...] = ("treadmill", "incline", "stair", "levelground")
+
+
+def classify_loc_condition_family(condition_name: str) -> Optional[str]:
+    """
+    Map condition group / folder name to a coarse family for stride balancing, or None.
+
+    Prefixes (case-insensitive): treadmill_, incline_, stair_, levelground_.
+    """
+    n = (condition_name or "").lower()
+    if n.startswith("treadmill_"):
+        return "treadmill"
+    if n.startswith("incline_"):
+        return "incline"
+    if n.startswith("stair_"):
+        return "stair"
+    if n.startswith("levelground_"):
+        return "levelground"
+    return None
+
+
+def enumerate_walking_trials_for_stride_plan(
+    *,
+    data_dir: str,
+    h5_dir: Optional[str],
+    use_h5: bool,
+    subject_ids: Optional[List[str]],
+    b3d_files: Optional[List[Path]],
+    walking_only: bool,
+    levelground_only: bool = False,
+    max_files: Optional[int],
+) -> List[Union[Tuple[str, str, str, str], Path]]:
+    """
+    List the same trial sources KineticsTCNDataset would use (condition filter, subject filter),
+    without loading full IK/ID. Used to total time per loc-condition family.
+    """
+    subject_ids_norm: Optional[List[str]] = None
+    if subject_ids is not None:
+        subject_ids_norm = [s.upper() for s in subject_ids]
+
+    requested_h5_dir = h5_dir or _default_h5_dir_from_processed_root(data_dir)
+    use_h5_eff = bool(use_h5 and HAS_H5PY and Path(requested_h5_dir).exists())
+    candidates: List[Union[Tuple[str, str, str, str], Path]] = []
+
+    if use_h5_eff:
+        if b3d_files is not None:
+            h5_root = Path(requested_h5_dir)
+            for p in sorted([Path(x) for x in b3d_files]):
+                sid = extract_subject_id(p)
+                cond = p.parent.name
+                if not include_condition_for_dataset(
+                    cond, walking_only=walking_only, levelground_only=levelground_only
+                ):
+                    continue
+                tr = p.name
+                candidates.append((sid, cond, tr, str(h5_root / f"{sid}.h5")))
+        else:
+            for subject_h5_path in sorted(Path(requested_h5_dir).glob("S*.h5")):
+                sid = subject_h5_path.stem.upper()
+                if subject_ids_norm is not None and sid not in set(subject_ids_norm):
+                    continue
+                with h5py.File(subject_h5_path, "r") as h5f:
+                    for cond in sorted(h5f.keys()):
+                        if not include_condition_for_dataset(
+                            cond, walking_only=walking_only, levelground_only=levelground_only
+                        ):
+                            continue
+                        for trial in sorted(h5f[cond].keys()):
+                            candidates.append((sid, cond, trial, str(subject_h5_path)))
+        if max_files is not None:
+            candidates = candidates[: int(max_files)]
+    else:
+        if b3d_files is not None:
+            trial_dirs = sorted([Path(p) for p in b3d_files])
+        else:
+            trial_dirs = find_trial_dirs(data_dir)
+        trial_dirs = [
+            td
+            for td in trial_dirs
+            if include_condition_for_dataset(
+                td.parent.name, walking_only=walking_only, levelground_only=levelground_only
+            )
+        ]
+        if max_files is not None:
+            trial_dirs = trial_dirs[: int(max_files)]
+        candidates = list(trial_dirs)
+
+    return candidates
+
+
+def ik_time_span_seconds_h5_ref(ref: Tuple[str, str, str, str]) -> Optional[float]:
+    """Duration from first IK table: last(time) - first(time)."""
+    _sid, cond_name, trial_name, subject_h5_path = ref
+    h5_path = Path(subject_h5_path)
+    if not h5_path.exists():
+        return None
+    try:
+        with h5py.File(h5_path, "r") as h5f:
+            if cond_name not in h5f or trial_name not in h5f[cond_name]:
+                return None
+            trial_group = h5f[cond_name][trial_name]
+            if "ik" not in trial_group or len(trial_group["ik"].keys()) == 0:
+                return None
+            ik_key = sorted(list(trial_group["ik"].keys()))[0]
+            ik_cols, ik_data = _read_h5_opensim_table(trial_group["ik"][ik_key])
+    except Exception:
+        return None
+    if "time" not in ik_cols or ik_data.shape[0] < 2:
+        return None
+    t = ik_data[:, ik_cols.index("time")].astype(np.float64)
+    span = float(t[-1] - t[0])
+    return span if np.isfinite(span) and span > 0 else None
+
+
+def ik_time_span_seconds_trial_dir(trial_dir: Path) -> Optional[float]:
+    """Duration from first IK .mot under trial_dir/ik/."""
+    ik_dir = trial_dir / "ik"
+    if not ik_dir.is_dir():
+        return None
+    ik_files = sorted(ik_dir.glob("*.mot"))
+    if not ik_files:
+        return None
+    try:
+        ik_cols, ik_data = _read_opensim_table(ik_files[0])
+    except Exception:
+        return None
+    if "time" not in ik_cols or ik_data.shape[0] < 2:
+        return None
+    t = ik_data[:, ik_cols.index("time")].astype(np.float64)
+    span = float(t[-1] - t[0])
+    return span if np.isfinite(span) and span > 0 else None
+
+
+def summarize_loc_condition_family_times(
+    *,
+    data_dir: str,
+    h5_dir: Optional[str],
+    use_h5: bool,
+    subject_ids: Optional[List[str]],
+    b3d_files: Optional[List[Path]],
+    walking_only: bool,
+    levelground_only: bool = False,
+    max_files: Optional[int],
+) -> Dict[str, float]:
+    """Total IK time (seconds) per loc family on the listed trials; only keys with >0 time."""
+    candidates = enumerate_walking_trials_for_stride_plan(
+        data_dir=data_dir,
+        h5_dir=h5_dir,
+        use_h5=use_h5,
+        subject_ids=subject_ids,
+        b3d_files=b3d_files,
+        walking_only=walking_only,
+        levelground_only=levelground_only,
+        max_files=max_files,
+    )
+    seconds = {k: 0.0 for k in LOC_CONDITION_FAMILY_KEYS}
+    for c in candidates:
+        if isinstance(c, tuple):
+            dur = ik_time_span_seconds_h5_ref(c)
+            cond_name = c[1]
+        else:
+            dur = ik_time_span_seconds_trial_dir(c)
+            cond_name = c.parent.name
+        if dur is None:
+            continue
+        fam = classify_loc_condition_family(cond_name)
+        if fam is None:
+            continue
+        seconds[fam] += float(dur)
+    return seconds
+
+
+def compute_balanced_strides_for_loc_families(
+    seconds_per_family: Dict[str, float],
+    base_stride: float,
+) -> Dict[str, int]:
+    """
+    Per-family stride = floor(base_stride * T_f / median(T_present)), min 1.
+
+    Longer total-time families get a larger stride (fewer windows); shorter ones
+    get a smaller stride (denser sampling).
+    """
+    base_stride = float(base_stride)
+    present = {
+        k: float(seconds_per_family.get(k, 0.0))
+        for k in LOC_CONDITION_FAMILY_KEYS
+        if float(seconds_per_family.get(k, 0.0)) > 0.0
+    }
+    if not present:
+        return {}
+    t_ref = float(np.median(list(present.values())))
+    if t_ref <= 0 or not math.isfinite(t_ref):
+        s0 = max(1, int(math.floor(base_stride)))
+        return {k: s0 for k in present}
+    out: Dict[str, int] = {}
+    for fam, T in present.items():
+        s_raw = base_stride * (T / t_ref)
+        out[fam] = max(1, int(math.floor(s_raw)))
+    return out
+
+
+def plan_loc_condition_family_stride_balance(
+    *,
+    data_dir: str,
+    h5_dir: Optional[str],
+    use_h5: bool,
+    subject_ids: Optional[List[str]],
+    b3d_files: Optional[List[Path]],
+    walking_only: bool,
+    levelground_only: bool = False,
+    max_files: Optional[int],
+    base_stride: float,
+) -> Tuple[Dict[str, float], Dict[str, int]]:
+    """Compute total time per family and balanced integer strides (floored)."""
+    secs = summarize_loc_condition_family_times(
+        data_dir=data_dir,
+        h5_dir=h5_dir,
+        use_h5=use_h5,
+        subject_ids=subject_ids,
+        b3d_files=b3d_files,
+        walking_only=walking_only,
+        levelground_only=levelground_only,
+        max_files=max_files,
+    )
+    strides = compute_balanced_strides_for_loc_families(secs, base_stride)
+    return secs, strides
 
 
 def find_trial_dirs(root_dir: str) -> List[Path]:
@@ -653,14 +920,44 @@ class KineticsTCNDataset(Dataset):
 
     _UNSET = object()
 
+    @staticmethod
+    def _window_ok_for_training(
+        trial: Dict[str, Any],
+        start: int,
+        end: int,
+        input_indices: Optional[List[int]],
+        moment_indices: Optional[List[int]],
+    ) -> bool:
+        """
+        Require finite IK positions, velocities, and selected moments over the window.
+
+        MeMo / partial IK exports can leave NaNs in angle columns or in velocities from
+        splines; moments alone were previously checked, which let NaN inputs through and
+        caused NaN MSE during training.
+        """
+        pos_w = trial["positions"][start:end]
+        vel_w = trial["velocities"][start:end]
+        mom_w = trial["moments"][start:end]
+        if input_indices is not None:
+            pos_w = pos_w[:, input_indices]
+            vel_w = vel_w[:, input_indices]
+        if moment_indices is not None:
+            mom_w = mom_w[:, moment_indices]
+        return (
+            np.all(np.isfinite(pos_w))
+            and np.all(np.isfinite(vel_w))
+            and np.all(np.isfinite(mom_w))
+        )
+
     def __init__(
         self,
         data_dir: Optional[str] = None,
         h5_dir: Optional[str] = None,
         use_h5: bool = True,
         window_size: int = 200,
-        stride: int = 50,
+        stride: int = 1,
         walking_only: bool = True,
+        levelground_only: bool = False,
         normalize: bool = True,
         max_files: Optional[int] = None,
         stats: Optional[Dict] = None,
@@ -681,7 +978,9 @@ class KineticsTCNDataset(Dataset):
             raise ValueError("data_dir must point to processed Camargo root")
 
         self.window_size = window_size
-        self.stride = stride
+        self.stride = int(stride)
+        if self.stride < 1:
+            raise ValueError("stride must be >= 1")
         self.normalize = normalize
         self.preload_trials = preload_trials
         self.apply_lowpass_filter = bool(apply_lowpass_filter)
@@ -691,6 +990,8 @@ class KineticsTCNDataset(Dataset):
 
         self.laterality = normalize_laterality(laterality)
         self._use_unilateral_flip = self.laterality == "unilateral"
+        self.walking_only = bool(walking_only)
+        self.levelground_only = bool(levelground_only)
 
         subject_ids_norm: Optional[List[str]] = None
         if subject_ids is not None:
@@ -748,6 +1049,12 @@ class KineticsTCNDataset(Dataset):
                 for p in sorted([Path(x) for x in b3d_files]):
                     sid = extract_subject_id(p)
                     cond = p.parent.name
+                    if not include_condition_for_dataset(
+                        cond,
+                        walking_only=self.walking_only,
+                        levelground_only=self.levelground_only,
+                    ):
+                        continue
                     trial = p.name
                     subject_h5_path = Path(self.h5_dir) / f"{sid}.h5"
                     refs.append((sid, cond, trial, str(subject_h5_path)))
@@ -761,7 +1068,11 @@ class KineticsTCNDataset(Dataset):
                         continue
                     with h5py.File(subject_h5_path, "r") as h5f:
                         for cond in sorted(h5f.keys()):
-                            if walking_only and not is_walking_condition(Path(cond)):
+                            if not include_condition_for_dataset(
+                                cond,
+                                walking_only=self.walking_only,
+                                levelground_only=self.levelground_only,
+                            ):
                                 continue
                             for trial in sorted(h5f[cond].keys()):
                                 refs.append((sid, cond, trial, str(subject_h5_path)))
@@ -772,6 +1083,11 @@ class KineticsTCNDataset(Dataset):
                 self.h5_trial_refs = self.h5_trial_refs[:max_files]
 
             print(f"[KineticsTCNDataset] Found {len(self.h5_trial_refs)} H5 trials in {source_desc}")
+            if self.levelground_only:
+                print(
+                    "  [KineticsTCNDataset] levelground_only=True "
+                    "(level-included tasks only; see is_levelground_subset_condition)"
+                )
         else:
             if b3d_files is not None:
                 trial_dirs = sorted([Path(p) for p in b3d_files])
@@ -780,13 +1096,25 @@ class KineticsTCNDataset(Dataset):
                 trial_dirs = find_trial_dirs(data_dir)
                 source_desc = data_dir
 
-            if walking_only:
-                trial_dirs = [td for td in trial_dirs if is_walking_condition(td.parent)]
+            trial_dirs = [
+                td
+                for td in trial_dirs
+                if include_condition_for_dataset(
+                    td.parent.name,
+                    walking_only=self.walking_only,
+                    levelground_only=self.levelground_only,
+                )
+            ]
             if max_files is not None:
                 trial_dirs = trial_dirs[:max_files]
 
             self.trial_dirs = trial_dirs
             print(f"[KineticsTCNDataset] Found {len(self.trial_dirs)} trials in {source_desc}")
+            if self.levelground_only:
+                print(
+                    "  [KineticsTCNDataset] levelground_only=True "
+                    "(level-included tasks only; see is_levelground_subset_condition)"
+                )
 
         if stats is not None:
             self.pos_mean = stats["pos_mean"]
@@ -807,6 +1135,7 @@ class KineticsTCNDataset(Dataset):
 
         # Build window index once during init (then only (trial_idx, start_frame) is stored).
         self.windows: List[Tuple[int, int]] = []
+        stride_eff = self._window_stride()
 
         candidates = self.h5_trial_refs if self.use_h5 else self.trial_dirs
         valid_trial_dirs: List[Path] = []
@@ -816,6 +1145,7 @@ class KineticsTCNDataset(Dataset):
                 print(f"  Loading trial {i+1}/{len(candidates)}: {ref}")
             if self.use_h5:
                 trial = self._load_trial_from_h5_ref(ref)
+                _sid, cond_name, _trial_name, _hp = ref
             else:
                 trial = load_trial_from_processed(
                     ref,
@@ -826,6 +1156,7 @@ class KineticsTCNDataset(Dataset):
                     lowpass_order=self.lowpass_order,
                     median_kernel_samples=self.median_kernel_samples,
                 )
+                cond_name = ref.parent.name
             if trial is None:
                 continue
 
@@ -843,22 +1174,27 @@ class KineticsTCNDataset(Dataset):
                 pos = trial["positions"].astype(np.float64)
                 vel = trial["velocities"].astype(np.float64)
                 T = pos.shape[0]
-                total_frames_for_stats += T
-                sum_pos += pos.sum(axis=0)
-                sumsq_pos += np.square(pos).sum(axis=0)
-                sum_vel += vel.sum(axis=0)
-                sumsq_vel += np.square(vel).sum(axis=0)
+                good = np.isfinite(pos).all(axis=1) & np.isfinite(vel).all(axis=1)
+                if np.any(good):
+                    pos = pos[good]
+                    vel = vel[good]
+                    n_g = float(pos.shape[0])
+                    total_frames_for_stats += n_g
+                    sum_pos += pos.sum(axis=0)
+                    sumsq_pos += np.square(pos).sum(axis=0)
+                    sum_vel += vel.sum(axis=0)
+                    sumsq_vel += np.square(vel).sum(axis=0)
 
             # Create windows and validate outputs for those windows.
             n = trial["positions"].shape[0]
-            for start in range(0, n - self.window_size + 1, self.stride):
+            for start in range(0, n - self.window_size + 1, stride_eff):
                 end = start + self.window_size
-                mom_w = trial["moments"][start:end]
-                if self.moment_indices is not None:
-                    mom_w = mom_w[:, self.moment_indices]
-                if np.all(np.isfinite(mom_w)):
-                    # Store (trial_index, start_frame) to avoid pickling large arrays.
-                    self.windows.append((t_idx, start))
+                if not self._window_ok_for_training(
+                    trial, start, end, self.input_indices, self.moment_indices
+                ):
+                    continue
+                # Store (trial_index, start_frame) to avoid pickling large arrays.
+                self.windows.append((t_idx, start))
 
             if self.preload_trials:
                 self.trials.append(trial)
@@ -891,6 +1227,12 @@ class KineticsTCNDataset(Dataset):
             f"created {n_windows} windows (window={window_size}, stride={stride}, "
             f"preload_trials={self.preload_trials}, use_h5={self.use_h5})"
         )
+        if n_windows == 0 and n_valid_trials > 0:
+            raise ValueError(
+                "No training windows: trials may be shorter than window_size, or all windows were "
+                "dropped because IK/velocity/moment channels had non-finite values (common with "
+                "partial MeMo H5 exports). See check_memo_nan_windows.py."
+            )
 
     def _load_trial_from_h5_ref(self, ref: Tuple[str, str, str, str]) -> Optional[Dict]:
         """
@@ -1030,17 +1372,22 @@ class KineticsTCNDataset(Dataset):
             "vel_std": self.vel_std,
         }
 
+    def _window_stride(self) -> int:
+        """Sliding-window step in samples (same for every condition)."""
+        return max(1, int(self.stride))
+
     def _build_index(self):
         self.windows: List[Tuple[int, int]] = []
+        stride_eff = self._window_stride()
         for t_idx, trial in enumerate(self.trials):
             n = trial["positions"].shape[0]
-            for start in range(0, n - self.window_size + 1, self.stride):
+            for start in range(0, n - self.window_size + 1, stride_eff):
                 end = start + self.window_size
-                mom_w = trial["moments"][start:end]
-                if self.moment_indices is not None:
-                    mom_w = mom_w[:, self.moment_indices]
-                if np.all(np.isfinite(mom_w)):
-                    self.windows.append((t_idx, start))
+                if not self._window_ok_for_training(
+                    trial, start, end, self.input_indices, self.moment_indices
+                ):
+                    continue
+                self.windows.append((t_idx, start))
 
     def __len__(self):
         return len(self.windows)

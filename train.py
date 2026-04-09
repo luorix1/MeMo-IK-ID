@@ -4,6 +4,7 @@ Training script for TCN-based joint moment prediction.
 
 Key behaviors:
   - Subject-based split: train and validation subjects are disjoint.
+  - Optional training-time Gaussian input noise (--input-noise-std); not applied at validation.
   - Optional Weights & Biases logging.
 """
 
@@ -22,8 +23,8 @@ from torch.utils.data import DataLoader
 
 from dataset import (
     KineticsTCNDataset,
-    find_trial_dirs,
     extract_subject_id,
+    find_trial_dirs,
 )
 from model import TCN
 
@@ -59,6 +60,7 @@ def train_one_epoch(
     device: str,
     epoch: int,
     grad_clip: float = 1.0,
+    input_noise_std: float = 0.0,
 ) -> float:
     model.train()
     running_loss = 0.0
@@ -66,6 +68,8 @@ def train_one_epoch(
 
     for x, y in loader:
         x, y = x.to(device), y.to(device)
+        if input_noise_std > 0:
+            x = x + torch.randn_like(x) * input_noise_std
         pred = model(x)
         loss = criterion(pred, y)
 
@@ -87,7 +91,7 @@ def evaluate(
     loader: Any,
     criterion: nn.Module,
     device: str,
-) -> Tuple[float, np.ndarray]:
+) -> Tuple[float, np.ndarray, float, np.ndarray]:
     model.eval()
     running_loss = 0.0
     n_batches = 0
@@ -111,7 +115,27 @@ def evaluate(
     per_ch_mse = ((all_pred - all_true) ** 2).mean(dim=(0, 2))  # (C_out,)
     per_ch_rmse = per_ch_mse.sqrt().numpy()
 
-    return avg_loss, per_ch_rmse
+    # R²: 1 - SS_res / SS_tot (per channel and global over samples × time)
+    ss_res = ((all_pred - all_true) ** 2).sum(dim=(0, 2))  # (C_out,)
+    t_mean = all_true.mean(dim=(0, 2), keepdim=True)  # (1, C_out, 1)
+    ss_tot = ((all_true - t_mean) ** 2).sum(dim=(0, 2))
+    per_ch_r2 = torch.where(
+        ss_tot > 0,
+        1.0 - ss_res / ss_tot,
+        torch.full_like(ss_res, float("nan")),
+    )
+    per_ch_r2_np = per_ch_r2.numpy()
+
+    flat_p = all_pred.reshape(-1)
+    flat_t = all_true.reshape(-1)
+    ss_res_g = ((flat_p - flat_t) ** 2).sum()
+    ss_tot_g = ((flat_t - flat_t.mean()) ** 2).sum()
+    if ss_tot_g.item() > 0:
+        r2_global = float((1.0 - ss_res_g / ss_tot_g).item())
+    else:
+        r2_global = float("nan")
+
+    return avg_loss, per_ch_rmse, r2_global, per_ch_r2_np
 
 
 def plot_curves(train_losses: List[float], val_losses: List[float], out_path: Path) -> None:
@@ -178,7 +202,12 @@ def main() -> None:
                         help="Directory containing trial directories")
     parser.add_argument("--output-dir", type=str, default="runs/tcn_run")
     parser.add_argument("--window-size", type=int, default=200)
-    parser.add_argument("--stride", type=int, default=50)
+    parser.add_argument(
+        "--stride",
+        type=int,
+        default=1,
+        help="Sliding-window step in samples (same for every condition). Validation uses --window-size.",
+    )
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--lr", type=float, default=5e-6)
@@ -188,6 +217,16 @@ def main() -> None:
     parser.add_argument("--kernel-size", type=int, default=5)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument(
+        "--input-noise-std",
+        type=float,
+        default=0.0,
+        help=(
+            "If > 0, add Gaussian noise to training inputs each batch (N(0, σ²) i.i.d. per element). "
+            "Not applied to validation. Units match the model input tensor (e.g. rad and rad/s when "
+            "normalize=False). Typical starting range: 1e-4–1e-2 depending on scale."
+        ),
+    )
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--max-train-files", type=int, default=None)
     parser.add_argument("--max-val-files", type=int, default=None)
@@ -203,6 +242,16 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--walking-only", action="store_true", default=True)
     parser.add_argument("--no-walking-only", dest="walking_only", action="store_false")
+    parser.add_argument(
+        "--levelground-only",
+        action="store_true",
+        help=(
+            "Use only level-included conditions: levelground_*, treadmill_normal_walk*, "
+            "treadmill_transient*, treadmill_0p*, treadmill_1p*, treadmill_2p*, "
+            "treadmill_unspecified_speed*. When set, determines which conditions are kept "
+            "(instead of the broad --walking-only filter)."
+        ),
+    )
     parser.add_argument(
         "--no-lowpass",
         action="store_true",
@@ -245,7 +294,7 @@ def main() -> None:
     parser.add_argument(
         "--laterality",
         type=str,
-        default="bilateral",
+        default="unilateral",
         choices=["bilateral", "unilateral", "both"],
         help=(
             "bilateral (alias: both): use all R/L channels as in the files. "
@@ -338,7 +387,7 @@ def main() -> None:
         val_files = val_files[:args.max_val_files]
 
     print("=" * 70)
-    print("SUBJECT SPLIT  (18 train / 1 val / 2 test)")
+    print("SUBJECT SPLIT")
     print("=" * 70)
     print(f"All subjects ({n_total}): {subjects}")
     print(f"Train  ({len(train_subjects):2d}): {train_subjects}")
@@ -361,6 +410,10 @@ def main() -> None:
         f"({ds_denoise_kw['lowpass_cutoff_hz']} Hz, order {ds_denoise_kw['lowpass_order']}), "
         f"median_k={args.median_kernel_samples}"
     )
+    if args.levelground_only:
+        print("  Condition filter: --levelground-only (level-included tasks only; see dataset.py)")
+    elif args.walking_only:
+        print("  Condition filter: walking-like trials only (--walking-only)")
     if is_h5_only_layout:
         train_ds = KineticsTCNDataset(
             data_dir=args.train_dir,
@@ -370,6 +423,7 @@ def main() -> None:
             window_size=args.window_size,
             stride=args.stride,
             walking_only=args.walking_only,
+            levelground_only=args.levelground_only,
             normalize=False,
             input_mode=args.input_mode,
             output_mode=args.output_mode,
@@ -384,6 +438,7 @@ def main() -> None:
             window_size=args.window_size,
             stride=args.stride,
             walking_only=args.walking_only,
+            levelground_only=args.levelground_only,
             normalize=False,
             input_mode=args.input_mode,
             output_mode=args.output_mode,
@@ -411,6 +466,7 @@ def main() -> None:
                 window_size=args.window_size,
                 stride=args.window_size,  # non-overlapping for eval
                 walking_only=args.walking_only,
+                levelground_only=args.levelground_only,
                 normalize=False,
                 stats=train_ds.get_stats(),
                 input_mode=args.input_mode,
@@ -426,6 +482,7 @@ def main() -> None:
                 window_size=args.window_size,
                 stride=args.window_size,  # non-overlapping for eval
                 walking_only=args.walking_only,
+                levelground_only=args.levelground_only,
                 normalize=False,
                 stats=train_ds.get_stats(),
                 input_mode=args.input_mode,
@@ -487,7 +544,9 @@ def main() -> None:
 
     # ---- Training loop ----
     train_losses, val_losses = [], []
+    val_r2_globals: List[float] = []
     best_val_loss = float("inf")
+    best_val_r2 = float("nan")
     epochs_no_improve = 0
     should_stop = False
     t0 = time.time()
@@ -495,6 +554,8 @@ def main() -> None:
     print(f"\n{'='*70}")
     print(f"TRAINING  |  epochs={args.epochs}  batch={args.batch_size}  "
           f"lr={args.lr}  window={args.window_size}")
+    if args.input_noise_std > 0:
+        print(f"  Input noise (train only): Gaussian std={args.input_noise_std}")
     print(f"{'='*70}")
 
     for epoch in range(args.epochs):
@@ -503,18 +564,24 @@ def main() -> None:
         train_loss = train_one_epoch(
             model, train_loader, criterion, optimizer, args.device, epoch,
             grad_clip=args.grad_clip,
+            input_noise_std=args.input_noise_std,
         )
         train_losses.append(train_loss)
 
         log_parts = [f"Epoch {epoch+1:3d}/{args.epochs}  train_mse={train_loss:.6f}"]
 
         if val_loader is not None:
-            val_loss, per_ch_rmse = evaluate(model, val_loader, criterion, args.device)
+            val_loss, per_ch_rmse, r2_global, per_ch_r2 = evaluate(
+                model, val_loader, criterion, args.device)
             val_losses.append(val_loss)
+            val_r2_globals.append(r2_global)
             log_parts.append(f"val_mse={val_loss:.6f}")
+            r2_str = f"{r2_global:.4f}" if np.isfinite(r2_global) else "nan"
+            log_parts.append(f"val_R2={r2_str}")
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                best_val_r2 = r2_global
                 epochs_no_improve = 0
                 _save_checkpoint(model, optimizer, epoch, train_loss, val_loss,
                                  train_ds, args, out_dir / "best_model.pt",
@@ -546,9 +613,14 @@ def main() -> None:
             }
             if val_loader is not None:
                 log_dict["val/mse"] = val_loss
+                if np.isfinite(r2_global):
+                    log_dict["val/r2"] = float(r2_global)
                 for i, rmse in enumerate(per_ch_rmse):
                     if i < len(out_dof_names):
                         log_dict[f"val/rmse/{out_dof_names[i]}"] = float(rmse)
+                for i, r2c in enumerate(per_ch_r2):
+                    if i < len(out_dof_names) and np.isfinite(r2c):
+                        log_dict[f"val/r2/{out_dof_names[i]}"] = float(r2c)
             wandb.log(log_dict)
 
         if (epoch + 1) % args.save_freq == 0:
@@ -590,6 +662,13 @@ def main() -> None:
     if val_losses:
         print(f"  Final val MSE:   {val_losses[-1]:.6f}")
         print(f"  Best val MSE:    {best_val_loss:.6f}")
+        if val_r2_globals:
+            fr2 = val_r2_globals[-1]
+            br2 = best_val_r2
+            fr2_s = f"{fr2:.4f}" if np.isfinite(fr2) else "nan"
+            br2_s = f"{br2:.4f}" if np.isfinite(br2) else "nan"
+            print(f"  Final val R²:    {fr2_s}")
+            print(f"  Best val R²:     {br2_s}  (at best val MSE checkpoint)")
     print(f"  Output: {out_dir}")
     print(f"{'='*70}")
 
@@ -641,6 +720,7 @@ def _save_checkpoint(
         "normalization": dataset.get_stats(),
         "dof_names": dof_names,
         "window_size": args.window_size,
+        "stride": args.stride,
         "input_mode": args.input_mode,
         "output_mode": args.output_mode,
         "input_indices": dataset.input_indices,

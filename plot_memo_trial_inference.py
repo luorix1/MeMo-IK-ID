@@ -3,6 +3,16 @@
 Run inference on one MeMo H5 trial and plot GT vs prediction.
 
 Creates one figure per output joint moment.
+
+IK positions, velocities, and ground-truth moments use the same denoising pipeline as
+``dataset.load_trial_from_processed`` / ``KineticsTCNDataset`` by default (optional
+median, then zero-phase Butterworth; velocities are computed after denoising).
+
+The TCN uses **causal** convolutions (``model.CausalConv1d``): each output time only
+sees past and current inputs. Default inference uses one output per time index
+(``--inference-mode causal``) consistent with that. The legacy ``overlap_mean``
+mode averaged overlapping window outputs and often made predictions look **phase-lagged**
+vs ground truth.
 """
 
 from __future__ import annotations
@@ -22,7 +32,13 @@ try:
 except ImportError as e:
     raise SystemExit("Install plotly: pip install plotly") from e
 
-from dataset import IK_DOF_NAMES, MOMENT_NAMES, _compute_velocity, _read_h5_opensim_table
+from dataset import (
+    IK_DOF_NAMES,
+    MOMENT_NAMES,
+    _compute_velocity,
+    _denoise_pos_and_moments,
+    _read_h5_opensim_table,
+)
 from model import TCN
 
 
@@ -52,6 +68,11 @@ def load_memo_trial(
     subject_id: str,
     condition_name: str,
     trial_name: str,
+    *,
+    apply_lowpass_filter: bool = True,
+    lowpass_cutoff_hz: float = 4.0,
+    lowpass_order: int = 4,
+    median_kernel_samples: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     h5_path = memo_root / f"{subject_id}.h5"
     if not h5_path.exists():
@@ -83,13 +104,10 @@ def load_memo_trial(
         if name in ik_cols:
             pos_deg[:, j] = ik_data[:, ik_cols.index(name)]
     pos = np.deg2rad(pos_deg)
-    vel = _compute_velocity(pos, time)
-
     id_time = id_data[:, id_cols.index("time")]
     n = min(len(time), len(id_time))
     time = time[:n]
     pos = pos[:n]
-    vel = vel[:n]
     id_data = id_data[:n]
 
     # Build full ID moments (T, 20). Missing channels become NaN.
@@ -99,7 +117,27 @@ def load_memo_trial(
         if col in id_cols:
             moments[:, j] = id_data[:, id_cols.index(col)]
 
-    return time.astype(np.float32), pos.astype(np.float32), vel.astype(np.float32), moments.astype(np.float32)
+    time_d = time.astype(np.float64)
+    pos = pos.astype(np.float64)
+    moments = moments.astype(np.float64)
+    if median_kernel_samples >= 3 or apply_lowpass_filter:
+        pos, moments = _denoise_pos_and_moments(
+            pos,
+            moments,
+            time_d,
+            median_kernel_samples=int(median_kernel_samples),
+            apply_lowpass_filter=bool(apply_lowpass_filter),
+            lowpass_cutoff_hz=float(lowpass_cutoff_hz),
+            lowpass_order=int(lowpass_order),
+        )
+    vel = _compute_velocity(pos, time_d)
+
+    return (
+        time.astype(np.float32),
+        pos.astype(np.float32),
+        vel.astype(np.float32),
+        moments.astype(np.float32),
+    )
 
 
 @torch.no_grad()
@@ -112,6 +150,8 @@ def infer_full_trial(
     moment_indices: List[int] | None,
     window_size: int,
     device: str,
+    *,
+    inference_mode: str = "causal",
 ) -> Tuple[np.ndarray, np.ndarray]:
     if input_indices is not None:
         pos_in = pos[:, input_indices]
@@ -130,18 +170,41 @@ def infer_full_trial(
     if n < window_size:
         raise ValueError(f"Trial too short ({n}) for window_size={window_size}.")
 
-    pred_sum = np.zeros((n, c_out), dtype=np.float64)
-    pred_cnt = np.zeros((n, c_out), dtype=np.float64)
+    W = int(window_size)
 
-    for start in range(0, n - window_size + 1):
-        end = start + window_size
-        x_w = np.concatenate([pos_in[start:end], vel_in[start:end]], axis=1).T  # (C_in, W)
+    def _forward_window(start: int) -> np.ndarray:
+        end = start + W
+        x_w = np.concatenate([pos_in[start:end], vel_in[start:end]], axis=1).T
         x_t = torch.from_numpy(x_w.astype(np.float32)).unsqueeze(0).to(device)
-        pred_w = model(x_t).squeeze(0).detach().cpu().numpy().T  # (W, C_out)
-        pred_sum[start:end] += pred_w
-        pred_cnt[start:end] += 1.0
+        pred_w = model(x_t).squeeze(0).detach().cpu().numpy()  # (C_out, W)
+        return pred_w.T  # (W, C_out)
 
-    pred = pred_sum / np.maximum(pred_cnt, 1.0)
+    if inference_mode == "overlap_mean":
+        # Legacy: average all window outputs that cover each time index. This mixes
+        # shallow-causal outputs (small local t) with deep-causal ones and often
+        # smears phase / looks lagged vs GT for a causal TCN (see model.CausalConv1d).
+        pred_sum = np.zeros((n, c_out), dtype=np.float64)
+        pred_cnt = np.zeros((n, c_out), dtype=np.float64)
+        for start in range(0, n - W + 1):
+            pred_w = _forward_window(start)
+            pred_sum[start : start + W] += pred_w
+            pred_cnt[start : start + W] += 1.0
+        pred = pred_sum / np.maximum(pred_cnt, 1.0)
+    elif inference_mode == "causal":
+        # One prediction per time g: start = max(0, g - W + 1), t_loc = g - start.
+        # For g >= W-1 this is always the last timestep of the window ending at g
+        # (max causal context in-window). Avoids overlap_mean, which averaged
+        # shallow- and deep-context outputs and smeared phase (looked "lagged").
+        pred = np.zeros((n, c_out), dtype=np.float64)
+        pw0 = _forward_window(0)
+        for g in range(W - 1):
+            pred[g] = pw0[g]
+        for start in range(0, n - W + 1):
+            pred_w = _forward_window(start)
+            pred[start + W - 1] = pred_w[W - 1]
+    else:
+        raise ValueError(f"Unknown inference_mode: {inference_mode!r} (use 'causal' or 'overlap_mean')")
+
     return pred.astype(np.float32), y_true.astype(np.float32)
 
 
@@ -159,12 +222,26 @@ def run_single_trial_inference(
     out_dir: Path,
     write_combined_html: bool,
     device: str,
+    inference_mode: str = "causal",
     checkpoint_path: str | None = None,
+    apply_lowpass_filter: bool = True,
+    lowpass_cutoff_hz: float = 4.0,
+    lowpass_order: int = 4,
+    median_kernel_samples: int = 0,
 ) -> None:
     """Load one MeMo trial, run sliding-window inference, write Plotly HTML."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    time, pos, vel, moments = load_memo_trial(memo_root, subject_id, condition, trial)
+    time, pos, vel, moments = load_memo_trial(
+        memo_root,
+        subject_id,
+        condition,
+        trial,
+        apply_lowpass_filter=apply_lowpass_filter,
+        lowpass_cutoff_hz=lowpass_cutoff_hz,
+        lowpass_order=lowpass_order,
+        median_kernel_samples=median_kernel_samples,
+    )
     pred, true = infer_full_trial(
         model=model,
         pos=pos,
@@ -174,6 +251,7 @@ def run_single_trial_inference(
         moment_indices=moment_indices,
         window_size=window_size,
         device=device,
+        inference_mode=inference_mode,
     )
 
     dof_names = ckpt_dof_names
@@ -281,6 +359,11 @@ def run_single_trial_inference(
                 "output_dof_names": dof_names[: pred.shape[1]],
                 "plot_format": "html_plotly",
                 "write_combined_html": bool(write_combined_html),
+                "apply_lowpass_filter": bool(apply_lowpass_filter),
+                "lowpass_cutoff_hz": float(lowpass_cutoff_hz),
+                "lowpass_order": int(lowpass_order),
+                "median_kernel_samples": int(median_kernel_samples),
+                "inference_mode": inference_mode,
             },
             f,
             indent=2,
@@ -302,7 +385,33 @@ def main() -> None:
         action="store_true",
         help="Also write one combined multi-panel interactive HTML for all outputs.",
     )
+    parser.add_argument(
+        "--no-lowpass",
+        action="store_true",
+        help="Disable Butterworth low-pass (matches train --no-lowpass; median still applies if set).",
+    )
+    parser.add_argument(
+        "--lowpass-cutoff-hz",
+        type=float,
+        default=4.0,
+        help="Zero-phase Butterworth low-pass cutoff (Hz); default matches train.py.",
+    )
+    parser.add_argument("--lowpass-order", type=int, default=4)
+    parser.add_argument(
+        "--median-kernel-samples",
+        type=int,
+        default=0,
+        help="Temporal median kernel (>=3); 0 disables. Applied before LPF, as in dataset.py.",
+    )
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--inference-mode",
+        type=str,
+        choices=("causal", "overlap_mean"),
+        default="causal",
+        help="causal: one output per time (matches causal TCN; default). "
+        "overlap_mean: legacy average over windows (often looks lagged).",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.output_dir)
@@ -322,7 +431,12 @@ def main() -> None:
         out_dir=out_dir,
         write_combined_html=bool(args.write_combined_html),
         device=args.device,
+        inference_mode=str(args.inference_mode),
         checkpoint_path=str(args.checkpoint),
+        apply_lowpass_filter=not bool(args.no_lowpass),
+        lowpass_cutoff_hz=float(args.lowpass_cutoff_hz),
+        lowpass_order=int(args.lowpass_order),
+        median_kernel_samples=int(args.median_kernel_samples),
     )
 
 
