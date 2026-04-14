@@ -19,7 +19,7 @@ Windowing:
 
 Denoising (optional, for noisy IK / ID):
   - Temporal median filter (impulse / double-peak spikes)
-  - Zero-phase Butterworth low-pass (default 4 Hz)
+  - Zero-phase Butterworth low-pass (default 4 Hz; SciPy ``sosfiltfilt``, forward-backward)
   Velocities are always computed from the final filtered positions.
 """
 
@@ -127,7 +127,8 @@ def normalize_laterality(laterality: Optional[str]) -> str:
     """
     ``bilateral`` (alias: ``both``): use all sides as stored.
     ``unilateral``: same DOFs as bilateral; left hip adduction & rotation are negated
-    to align L/R sign convention (right unchanged).
+    to align L/R sign convention (right unchanged). With symmetric R/L index lists, training can use
+    **paired ipsilateral windows** (see ``KineticsTCNDataset``).
     """
     x = (laterality or "bilateral").strip().lower()
     if x in ("both", "bilateral"):
@@ -162,6 +163,45 @@ def _apply_unilateral_flip_to_trial(trial: Dict[str, Any]) -> None:
         trial["velocities"],
         trial["moments"],
     )
+
+
+def _unilateral_paired_indices_eligible(
+    input_indices: Optional[List[int]],
+    moment_indices: Optional[List[int]],
+) -> bool:
+    """True if R/L halves are same length (symmetric ipsilateral chains)."""
+    if input_indices is None or moment_indices is None:
+        return False
+    if len(input_indices) != len(moment_indices):
+        return False
+    if len(input_indices) < 2 or len(input_indices) % 2 != 0:
+        return False
+    return True
+
+
+def generic_moment_names_paired(moment_indices: List[int]) -> List[str]:
+    """Drop ``_r`` / ``_l`` from right-half moment names (ipsilateral head, either leg)."""
+    half = moment_indices[: len(moment_indices) // 2]
+    out: List[str] = []
+    for i in half:
+        n = MOMENT_NAMES[i]
+        if n.endswith("_r") or n.endswith("_l"):
+            out.append(n[:-2])
+        else:
+            out.append(n)
+    return out
+
+
+def generic_ik_names_paired(ik_indices: List[int]) -> List[str]:
+    half = ik_indices[: len(ik_indices) // 2]
+    out: List[str] = []
+    for i in half:
+        n = IK_DOF_NAMES[i]
+        if n.endswith("_r") or n.endswith("_l"):
+            out.append(n[:-2])
+        else:
+            out.append(n)
+    return out
 
 
 # ---- Output moment index sets (indices into MOMENT_NAMES) --------------
@@ -216,11 +256,23 @@ SAGITTAL_INPUT_INDICES = [
     17,  # ankle_angle_l
 ]
 
+# Single sagittal DOF type × R/L (paired with ``laterality=unilateral`` → ipsilateral 1→1 windows).
+SAGITTAL_HIP_FLEXION_INPUT_INDICES = [6, 13] # hip_flexion_r, hip_flexion_l
+SAGITTAL_KNEE_INPUT_INDICES = [9, 16]  # knee_angle_r, knee_angle_l
+SAGITTAL_ANKLE_INPUT_INDICES = [10, 17]  # ankle_angle_r, ankle_angle_l
+
+SAGITTAL_HIP_FLEXION_MOMENT_INDICES = [3, 6]  # hip_flexion_r, hip_flexion_l
+SAGITTAL_KNEE_MOMENT_INDICES = [12, 13]  # knee_angle_r, knee_angle_l
+SAGITTAL_ANKLE_MOMENT_INDICES = [14, 15]  # ankle_angle_r, ankle_angle_l
+
 
 INPUT_MODE_INDICES = {
     "full": None,
     "lower_limb": LOWER_LIMB_INPUT_INDICES,
     "sagittal": SAGITTAL_INPUT_INDICES,
+    "sagittal_hip_flexion": SAGITTAL_HIP_FLEXION_INPUT_INDICES,
+    "sagittal_knee": SAGITTAL_KNEE_INPUT_INDICES,
+    "sagittal_ankle": SAGITTAL_ANKLE_INPUT_INDICES,
 }
 
 OUTPUT_MODE_INDICES = {
@@ -229,6 +281,9 @@ OUTPUT_MODE_INDICES = {
     "hip_knee": HIP_KNEE_MOMENT_INDICES,
     "sagittal_hip_knee": SAGITTAL_HIP_KNEE_MOMENT_INDICES,
     "sagittal_hip_knee_ankle": SAGITTAL_HIP_KNEE_ANKLE_MOMENT_INDICES,
+    "sagittal_hip_flexion": SAGITTAL_HIP_FLEXION_MOMENT_INDICES,
+    "sagittal_knee": SAGITTAL_KNEE_MOMENT_INDICES,
+    "sagittal_ankle": SAGITTAL_ANKLE_MOMENT_INDICES,
 }
 
 
@@ -638,8 +693,12 @@ def _lowpass_zero_phase(
 ) -> np.ndarray:
     """
     Zero-phase low-pass filter along time axis for each channel.
-    Falls back to input unchanged when SciPy signal is unavailable or
-    filtering settings are invalid for the current trial length/sample rate.
+
+    Implemented with ``scipy.signal.sosfiltfilt`` (second-order sections, forward-backward).
+    Training/eval IK and ID denoising must keep this zero-phase form; do not swap in
+    one-pass ``sosfilt`` / ``lfilter`` here.
+    Falls back to input unchanged when SciPy signal is unavailable or filtering settings
+    are invalid for the current trial length/sample rate.
     """
     if not HAS_SCIPY_SIGNAL:
         return data
@@ -660,6 +719,7 @@ def _lowpass_zero_phase(
 
     try:
         sos = butter(order, cutoff_hz / nyquist, btype="low", output="sos")
+        # Forward-backward => zero phase (training/eval IK+ID denoise must not use one-pass filters).
         return sosfiltfilt(sos, data.astype(np.float64), axis=0)
     except Exception:
         return data
@@ -714,7 +774,8 @@ def _denoise_pos_and_moments(
     """
     Denoise pipeline for IK positions (rad) and ID moments.
 
-    Order: optional median → optional zero-phase Butterworth low-pass.
+    Order: optional median → optional zero-phase Butterworth low-pass
+    (``_lowpass_zero_phase`` / ``scipy.signal.sosfiltfilt``).
     """
     pos = pos.astype(np.float64)
     moments = moments.astype(np.float64)
@@ -782,6 +843,69 @@ def _default_h5_dir_from_processed_root(data_dir: str) -> str:
     return str(d.with_name(f"{d.name}_h5"))
 
 
+def resample_trial_to_uniform_hz(
+    time: np.ndarray,
+    pos: np.ndarray,
+    moments: np.ndarray,
+    target_hz: float,
+    *,
+    native_hz_tolerance: float = 1.0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Uniformly resample IK positions and ID moments (same time base) to ``target_hz`` via linear interpolation.
+
+    If the median native sample rate is within ``native_hz_tolerance`` of ``target_hz``, returns inputs
+    unchanged (avoids unnecessary regridding when data already match). Typical Camargo H5 IK is ~200 Hz;
+    use e.g. ``target_hz=100`` for half-rate training windows.
+    """
+    if target_hz <= 0:
+        raise ValueError("target_hz must be positive.")
+    t = np.asarray(time, dtype=np.float64).ravel()
+    if t.size < 2:
+        return time, pos, moments
+    p = np.asarray(pos, dtype=np.float64)
+    m = np.asarray(moments, dtype=np.float64)
+    if p.shape[0] != t.size or m.shape[0] != t.size:
+        raise ValueError(
+            f"time length {t.size} must match pos rows {p.shape[0]} and moments rows {m.shape[0]}."
+        )
+
+    dt = np.diff(t)
+    dt = dt[np.isfinite(dt) & (dt > 0)]
+    if dt.size == 0:
+        return time, pos, moments
+    fs_native = 1.0 / float(np.median(dt))
+    if abs(fs_native - float(target_hz)) <= float(native_hz_tolerance):
+        return time, pos, moments
+
+    t0, t1 = float(t[0]), float(t[-1])
+    span = t1 - t0
+    if span <= 0:
+        return time, pos, moments
+
+    n_out = max(2, int(round(span * float(target_hz))) + 1)
+    t_new = np.linspace(t0, t1, n_out, dtype=np.float64)
+
+    def _interp_cols(t_new_: np.ndarray, y: np.ndarray) -> np.ndarray:
+        out = np.empty((n_out, y.shape[1]), dtype=np.float64)
+        for j in range(y.shape[1]):
+            col = y[:, j]
+            fin = np.isfinite(col)
+            if not np.any(fin):
+                out[:, j] = np.nan
+            else:
+                out[:, j] = np.interp(t_new_, t[fin], col[fin])
+        return out
+
+    p_new = _interp_cols(t_new, p)
+    m_new = _interp_cols(t_new, m)
+    return (
+        t_new.astype(np.float32),
+        p_new.astype(np.float32),
+        m_new.astype(np.float32),
+    )
+
+
 def _coerce_weight_kg(weight_kg_value) -> float:
     """
     Convert metadata weight/mass value into a single float.
@@ -824,6 +948,7 @@ def load_trial_from_processed(
     lowpass_cutoff_hz: float = 4.0,
     lowpass_order: int = 4,
     median_kernel_samples: int = 0,
+    target_sample_rate_hz: Optional[float] = None,
 ) -> Optional[Dict]:
     """
     Load one processed trial directory into arrays:
@@ -883,6 +1008,11 @@ def load_trial_from_processed(
             # Windowing will drop windows where selected output channels are non-finite.
             pass
 
+    if target_sample_rate_hz is not None and target_sample_rate_hz > 0:
+        time, pos, moments = resample_trial_to_uniform_hz(
+            time, pos, moments, float(target_sample_rate_hz)
+        )
+
     if median_kernel_samples >= 3 or apply_lowpass_filter:
         pos, moments = _denoise_pos_and_moments(
             pos,
@@ -916,6 +1046,17 @@ class KineticsTCNDataset(Dataset):
     Windowed dataset for TCN:
       x: (C_in, W)  where C_in = 2 * n_input_dofs
       y: (C_out, W) where C_out = n_output_dofs
+
+    With ``laterality=unilateral`` and symmetric R/L ``input_indices`` / ``moment_indices`` (same length,
+    even count), each time step range can yield **two** training windows (right chain and left chain), doubling
+    data like the IMU ipsilateral pipeline. Use ``unilateral_paired_side_windows=False`` (or
+    ``--legacy-unilateral-full-window`` in ``ik_id.train``) to keep one full R+L window per start (old behavior).
+
+    ``target_sample_rate_hz``: if set (e.g. 100), resample IK/ID to a uniform grid at that rate before
+    denoising and velocity estimation. Default ``None`` keeps the native timeline (~200 Hz for typical H5).
+
+    Optional Butterworth low-pass on IK positions and ID moments is always **zero-phase**
+    (``_lowpass_zero_phase`` / ``sosfiltfilt``), same as ``_denoise_pos_and_moments``.
     """
 
     _UNSET = object()
@@ -966,6 +1107,7 @@ class KineticsTCNDataset(Dataset):
         input_mode: str = "lower_limb",
         output_mode: str = "lower_limb",
         laterality: str = "bilateral",
+        unilateral_paired_side_windows: Optional[bool] = None,
         subject_ids: Optional[List[str]] = None,
         b3d_files: Optional[List[Path]] = None,  # interpreted as explicit trial_dirs if provided
         preload_trials: bool = False,
@@ -973,6 +1115,7 @@ class KineticsTCNDataset(Dataset):
         lowpass_cutoff_hz: float = 4.0,
         lowpass_order: int = 4,
         median_kernel_samples: int = 0,
+        target_sample_rate_hz: Optional[float] = None,
     ):
         if data_dir is None:
             raise ValueError("data_dir must point to processed Camargo root")
@@ -987,10 +1130,18 @@ class KineticsTCNDataset(Dataset):
         self.lowpass_cutoff_hz = float(lowpass_cutoff_hz)
         self.lowpass_order = int(lowpass_order)
         self.median_kernel_samples = int(median_kernel_samples)
+        self.target_sample_rate_hz: Optional[float] = (
+            None if target_sample_rate_hz is None else float(target_sample_rate_hz)
+        )
 
         self.laterality = normalize_laterality(laterality)
         self._use_unilateral_flip = self.laterality == "unilateral"
         self.walking_only = bool(walking_only)
+
+        self._pair_in_r: Optional[List[int]] = None
+        self._pair_in_l: Optional[List[int]] = None
+        self._pair_mom_r: Optional[List[int]] = None
+        self._pair_mom_l: Optional[List[int]] = None
         self.levelground_only = bool(levelground_only)
 
         subject_ids_norm: Optional[List[str]] = None
@@ -1018,6 +1169,30 @@ class KineticsTCNDataset(Dataset):
         else:
             # can be None (= all inputs)
             self.input_indices = input_indices
+
+        _eligible = _unilateral_paired_indices_eligible(
+            self.input_indices if isinstance(self.input_indices, list) else None,
+            self.moment_indices if isinstance(self.moment_indices, list) else None,
+        )
+        if unilateral_paired_side_windows is None:
+            self._unilateral_paired = bool(self._use_unilateral_flip and _eligible)
+        else:
+            if unilateral_paired_side_windows and not self._use_unilateral_flip:
+                raise ValueError(
+                    "unilateral_paired_side_windows=True requires laterality=unilateral."
+                )
+            if unilateral_paired_side_windows and not _eligible:
+                raise ValueError(
+                    "unilateral_paired_side_windows=True requires symmetric R/L input and moment index lists."
+                )
+            self._unilateral_paired = bool(unilateral_paired_side_windows)
+        if self._unilateral_paired:
+            assert self.input_indices is not None and self.moment_indices is not None
+            h = len(self.input_indices) // 2
+            self._pair_in_r = self.input_indices[:h]
+            self._pair_in_l = self.input_indices[h:]
+            self._pair_mom_r = self.moment_indices[:h]
+            self._pair_mom_l = self.moment_indices[h:]
 
         self.data_dir = data_dir
         self.meta_map = _load_subject_metadata_map(data_dir)
@@ -1133,8 +1308,9 @@ class KineticsTCNDataset(Dataset):
             sum_vel = np.zeros(len(IK_DOF_NAMES), dtype=np.float64)
             sumsq_vel = np.zeros(len(IK_DOF_NAMES), dtype=np.float64)
 
-        # Build window index once during init (then only (trial_idx, start_frame) is stored).
-        self.windows: List[Tuple[int, int]] = []
+        # Build window index once during init.
+        # Tuple is (trial_idx, start_frame, side) with side None (bilateral / legacy full window) or "r"/"l".
+        self.windows: List[Tuple[int, int, Optional[str]]] = []
         stride_eff = self._window_stride()
 
         candidates = self.h5_trial_refs if self.use_h5 else self.trial_dirs
@@ -1155,6 +1331,7 @@ class KineticsTCNDataset(Dataset):
                     lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                     lowpass_order=self.lowpass_order,
                     median_kernel_samples=self.median_kernel_samples,
+                    target_sample_rate_hz=self.target_sample_rate_hz,
                 )
                 cond_name = ref.parent.name
             if trial is None:
@@ -1189,12 +1366,25 @@ class KineticsTCNDataset(Dataset):
             n = trial["positions"].shape[0]
             for start in range(0, n - self.window_size + 1, stride_eff):
                 end = start + self.window_size
+                if self._unilateral_paired:
+                    assert self._pair_in_r is not None and self._pair_mom_r is not None
+                    assert self._pair_in_l is not None and self._pair_mom_l is not None
+                    r_ok = self._window_ok_for_training(
+                        trial, start, end, self._pair_in_r, self._pair_mom_r
+                    )
+                    l_ok = self._window_ok_for_training(
+                        trial, start, end, self._pair_in_l, self._pair_mom_l
+                    )
+                    if r_ok:
+                        self.windows.append((t_idx, start, "r"))
+                    if l_ok:
+                        self.windows.append((t_idx, start, "l"))
+                    continue
                 if not self._window_ok_for_training(
                     trial, start, end, self.input_indices, self.moment_indices
                 ):
                     continue
-                # Store (trial_index, start_frame) to avoid pickling large arrays.
-                self.windows.append((t_idx, start))
+                self.windows.append((t_idx, start, None))
 
             if self.preload_trials:
                 self.trials.append(trial)
@@ -1222,10 +1412,11 @@ class KineticsTCNDataset(Dataset):
             self.vel_std = np.sqrt(np.maximum(vel_var, 0.0)) + 1e-8
 
         n_windows = len(getattr(self, "windows", []))
+        _pair_note = f", unilateral_paired_side_windows={self._unilateral_paired}" if self._use_unilateral_flip else ""
         print(
             f"  Loaded {n_valid_trials} valid trials, "
             f"created {n_windows} windows (window={window_size}, stride={stride}, "
-            f"preload_trials={self.preload_trials}, use_h5={self.use_h5})"
+            f"preload_trials={self.preload_trials}, use_h5={self.use_h5}{_pair_note})"
         )
         if n_windows == 0 and n_valid_trials > 0:
             raise ValueError(
@@ -1299,6 +1490,11 @@ class KineticsTCNDataset(Dataset):
                 # Windowing will drop windows where selected output channels are non-finite.
                 pass
 
+        if self.target_sample_rate_hz is not None and self.target_sample_rate_hz > 0:
+            time, pos, moments = resample_trial_to_uniform_hz(
+                time, pos, moments, float(self.target_sample_rate_hz)
+            )
+
         if self.median_kernel_samples >= 3 or self.apply_lowpass_filter:
             pos, moments = _denoise_pos_and_moments(
                 pos,
@@ -1345,6 +1541,7 @@ class KineticsTCNDataset(Dataset):
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
                 median_kernel_samples=self.median_kernel_samples,
+                target_sample_rate_hz=self.target_sample_rate_hz,
             )
             label = td
         if trial is None:
@@ -1377,23 +1574,37 @@ class KineticsTCNDataset(Dataset):
         return max(1, int(self.stride))
 
     def _build_index(self):
-        self.windows: List[Tuple[int, int]] = []
+        self.windows: List[Tuple[int, int, Optional[str]]] = []
         stride_eff = self._window_stride()
         for t_idx, trial in enumerate(self.trials):
             n = trial["positions"].shape[0]
             for start in range(0, n - self.window_size + 1, stride_eff):
                 end = start + self.window_size
+                if self._unilateral_paired:
+                    assert self._pair_in_r is not None and self._pair_mom_r is not None
+                    assert self._pair_in_l is not None and self._pair_mom_l is not None
+                    r_ok = self._window_ok_for_training(
+                        trial, start, end, self._pair_in_r, self._pair_mom_r
+                    )
+                    l_ok = self._window_ok_for_training(
+                        trial, start, end, self._pair_in_l, self._pair_mom_l
+                    )
+                    if r_ok:
+                        self.windows.append((t_idx, start, "r"))
+                    if l_ok:
+                        self.windows.append((t_idx, start, "l"))
+                    continue
                 if not self._window_ok_for_training(
                     trial, start, end, self.input_indices, self.moment_indices
                 ):
                     continue
-                self.windows.append((t_idx, start))
+                self.windows.append((t_idx, start, None))
 
     def __len__(self):
         return len(self.windows)
 
     def __getitem__(self, idx):
-        t_idx, start = self.windows[idx]
+        t_idx, start, side = self.windows[idx]
         end = start + self.window_size
         trial = self._get_trial(t_idx)
 
@@ -1405,37 +1616,59 @@ class KineticsTCNDataset(Dataset):
             pos = (pos - self.pos_mean) / self.pos_std
             vel = (vel - self.vel_mean) / self.vel_std
 
+        if side is not None:
+            assert self._unilateral_paired
+            assert self._pair_in_r is not None and self._pair_in_l is not None
+            assert self._pair_mom_r is not None and self._pair_mom_l is not None
+            in_i = self._pair_in_r if side == "r" else self._pair_in_l
+            mom_i = self._pair_mom_r if side == "r" else self._pair_mom_l
+            pos = pos[:, in_i]
+            vel = vel[:, in_i]
+            mom = mom[:, mom_i]
+        else:
+            if self.input_indices is not None:
+                pos = pos[:, self.input_indices]
+                vel = vel[:, self.input_indices]
 
-        if self.input_indices is not None:
-            pos = pos[:, self.input_indices]
-            vel = vel[:, self.input_indices]
-
-        if self.moment_indices is not None:
-            mom = mom[:, self.moment_indices]
+            if self.moment_indices is not None:
+                mom = mom[:, self.moment_indices]
 
         x = np.concatenate([pos, vel], axis=1).T.astype(np.float32)
         y = mom.T.astype(np.float32)
         return torch.from_numpy(x), torch.from_numpy(y)
 
     @property
+    def unilateral_paired(self) -> bool:
+        return self._unilateral_paired
+
+    @property
     def n_input_channels(self):
-        n = len(self.input_indices) if self.input_indices is not None else len(IK_DOF_NAMES)
+        if self._unilateral_paired and self.input_indices is not None:
+            n = len(self.input_indices) // 2
+        else:
+            n = len(self.input_indices) if self.input_indices is not None else len(IK_DOF_NAMES)
         return n * 2
 
     @property
     def n_output_channels(self):
+        if self._unilateral_paired and self.moment_indices is not None:
+            return len(self.moment_indices) // 2
         if self.moment_indices is not None:
             return len(self.moment_indices)
         return len(MOMENT_NAMES)
 
     @property
     def input_dof_names(self) -> List[str]:
+        if self._unilateral_paired and self.input_indices is not None:
+            return generic_ik_names_paired(self.input_indices)
         if self.input_indices is not None:
             return [IK_DOF_NAMES[i] for i in self.input_indices]
         return list(IK_DOF_NAMES)
 
     @property
     def output_dof_names(self) -> List[str]:
+        if self._unilateral_paired and self.moment_indices is not None:
+            return generic_moment_names_paired(self.moment_indices)
         if self.moment_indices is not None:
             return [MOMENT_NAMES[i] for i in self.moment_indices]
         return list(MOMENT_NAMES)

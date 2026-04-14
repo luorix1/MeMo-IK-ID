@@ -4,16 +4,31 @@ Training script for TCN-based joint moment prediction.
 
 Key behaviors:
   - Subject-based split: train and validation subjects are disjoint.
+  - Dataset IK/ID Butterworth low-pass (unless --no-lowpass) is **zero-phase** (``sosfiltfilt`` in ``dataset._lowpass_zero_phase``), not causal one-pass filtering.
   - Optional training-time Gaussian input noise (--input-noise-std); not applied at validation.
+  - Optional angle-only jitter (--angle-jitter-std) on position channels (first half of IK pos+vel
+    inputs); not applied at validation.
   - Optional Weights & Biases logging.
+
+Run from ``os_kinetics/``::
+
+    python -m ik_id.train ...
+    python ik_id/train.py ...
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import random
+import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 import numpy as np
 import torch
@@ -27,6 +42,7 @@ from dataset import (
     find_trial_dirs,
 )
 from model import TCN
+from training_utils import evaluate, set_global_seed, train_one_epoch
 
 try:
     import matplotlib
@@ -41,101 +57,6 @@ try:
     HAS_WANDB = True
 except ImportError:
     HAS_WANDB = False
-
-
-def set_global_seed(seed: int) -> None:
-    """Set seeds for Python, NumPy, and Torch (CPU & CUDA) for reproducibility."""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
-def train_one_epoch(
-    model: torch.nn.Module,
-    loader: Any,
-    criterion: nn.Module,
-    optimizer: optim.Optimizer,
-    device: str,
-    epoch: int,
-    grad_clip: float = 1.0,
-    input_noise_std: float = 0.0,
-) -> float:
-    model.train()
-    running_loss = 0.0
-    n_batches = 0
-
-    for x, y in loader:
-        x, y = x.to(device), y.to(device)
-        if input_noise_std > 0:
-            x = x + torch.randn_like(x) * input_noise_std
-        pred = model(x)
-        loss = criterion(pred, y)
-
-        optimizer.zero_grad()
-        loss.backward()
-        if grad_clip > 0:
-            nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        optimizer.step()
-
-        running_loss += loss.item()
-        n_batches += 1
-
-    return running_loss / max(n_batches, 1)
-
-
-@torch.no_grad()
-def evaluate(
-    model: torch.nn.Module,
-    loader: Any,
-    criterion: nn.Module,
-    device: str,
-) -> Tuple[float, np.ndarray, float, np.ndarray]:
-    model.eval()
-    running_loss = 0.0
-    n_batches = 0
-    all_pred, all_true = [], []
-
-    for x, y in loader:
-        x, y = x.to(device), y.to(device)
-        pred = model(x)
-        loss = criterion(pred, y)
-        running_loss += loss.item()
-        n_batches += 1
-        all_pred.append(pred.cpu())
-        all_true.append(y.cpu())
-
-    avg_loss = running_loss / max(n_batches, 1)
-
-    all_pred = torch.cat(all_pred, dim=0)  # (N, C_out, W)
-    all_true = torch.cat(all_true, dim=0)
-
-    # Per-channel RMSE: sqrt(mean over samples and time)
-    per_ch_mse = ((all_pred - all_true) ** 2).mean(dim=(0, 2))  # (C_out,)
-    per_ch_rmse = per_ch_mse.sqrt().numpy()
-
-    # R²: 1 - SS_res / SS_tot (per channel and global over samples × time)
-    ss_res = ((all_pred - all_true) ** 2).sum(dim=(0, 2))  # (C_out,)
-    t_mean = all_true.mean(dim=(0, 2), keepdim=True)  # (1, C_out, 1)
-    ss_tot = ((all_true - t_mean) ** 2).sum(dim=(0, 2))
-    per_ch_r2 = torch.where(
-        ss_tot > 0,
-        1.0 - ss_res / ss_tot,
-        torch.full_like(ss_res, float("nan")),
-    )
-    per_ch_r2_np = per_ch_r2.numpy()
-
-    flat_p = all_pred.reshape(-1)
-    flat_t = all_true.reshape(-1)
-    ss_res_g = ((flat_p - flat_t) ** 2).sum()
-    ss_tot_g = ((flat_t - flat_t.mean()) ** 2).sum()
-    if ss_tot_g.item() > 0:
-        r2_global = float((1.0 - ss_res_g / ss_tot_g).item())
-    else:
-        r2_global = float("nan")
-
-    return avg_loss, per_ch_rmse, r2_global, per_ch_r2_np
 
 
 def plot_curves(train_losses: List[float], val_losses: List[float], out_path: Path) -> None:
@@ -162,6 +83,8 @@ def plot_sample_prediction(
     out_path: Path,
     dof_names: List[str],
     n_dofs_to_plot: int = 6,
+    *,
+    sample_rate_hz: float = 200.0,
 ) -> None:
     """Plot ground-truth vs predicted moments for the first window."""
     if not HAS_MPL:
@@ -179,7 +102,7 @@ def plot_sample_prediction(
     if n_plot == 1:
         axes = [axes]
 
-    t = np.arange(y.shape[1]) / 200.0  # seconds at 200 Hz
+    t = np.arange(y.shape[1]) / float(sample_rate_hz)
 
     for i in range(n_plot):
         ax = axes[i]
@@ -227,6 +150,17 @@ def main() -> None:
             "normalize=False). Typical starting range: 1e-4–1e-2 depending on scale."
         ),
     )
+    parser.add_argument(
+        "--angle-jitter-std",
+        type=float,
+        default=0.0,
+        help=(
+            "If > 0, add Gaussian noise only to joint angle (position) channels — the first half of "
+            "each sample [pos‖vel], before optional --input-noise-std. Velocities are left as loaded "
+            "(mismatched pos/vel can mimic noisy angle estimates in a cascade). Train only; same units "
+            "as angles (e.g. rad when normalize=False). Try 1e-3–5e-2 rad."
+        ),
+    )
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--max-train-files", type=int, default=None)
     parser.add_argument("--max-val-files", type=int, default=None)
@@ -255,7 +189,10 @@ def main() -> None:
     parser.add_argument(
         "--no-lowpass",
         action="store_true",
-        help="Disable Butterworth low-pass in the dataset loader (median filter still applies if set).",
+        help=(
+            "Disable zero-phase Butterworth low-pass in the dataset loader (SciPy sosfiltfilt; "
+            "median filter still applies if set)."
+        ),
     )
     parser.add_argument(
         "--lowpass-cutoff-hz",
@@ -263,7 +200,12 @@ def main() -> None:
         default=4.0,
         help="Zero-phase Butterworth low-pass cutoff (Hz). Try 3–6 for gait; lower = smoother.",
     )
-    parser.add_argument("--lowpass-order", type=int, default=4)
+    parser.add_argument(
+        "--lowpass-order",
+        type=int,
+        default=4,
+        help="Butterworth order for the zero-phase (forward-backward) low-pass on IK/ID in the loader.",
+    )
     parser.add_argument(
         "--median-kernel-samples",
         type=int,
@@ -273,23 +215,52 @@ def main() -> None:
             "Try 5–9 at ~200 Hz to suppress impulse / double-peak noise before LPF."
         ),
     )
+    parser.add_argument(
+        "--target-sample-rate-hz",
+        type=float,
+        default=None,
+        help=(
+            "Uniform resampling rate (Hz) for IK/ID trials before denoising and velocity computation. "
+            "Default: native timeline (~200 Hz for typical H5). Example: 100: use a smaller "
+            "--window-size for the same wall-clock span (e.g. 200 samples at 200 Hz is ~1 s; use 100 at 100 Hz)."
+        ),
+    )
     parser.add_argument("--input-mode", type=str, default="lower_limb",
-                        choices=["full", "lower_limb", "sagittal"],
+                        choices=[
+                            "full",
+                            "lower_limb",
+                            "sagittal",
+                            "sagittal_hip_flexion",
+                            "sagittal_knee",
+                            "sagittal_ankle",
+                        ],
                         help=(
                             "Input DOF set: "
                             "full=all 23 DOFs (46 ch), "
                             "lower_limb=hip+knee+ankle R/L (10 DOFs, 20 ch), "
-                            "sagittal=hip_flex+knee+ankle R/L (6 DOFs, 12 ch)"
+                            "sagittal=hip_flex+knee+ankle R/L (6 DOFs, 12 ch), "
+                            "sagittal_hip_flexion / sagittal_knee / sagittal_ankle = that sagittal angle only R+L "
+                            "(2 DOFs, 4 ch pos+vel; pair with matching --output-mode)"
                         ))
     parser.add_argument("--output-mode", type=str, default="sagittal_hip_knee_ankle",
-                        choices=["all", "lower_limb", "hip_knee", "sagittal_hip_knee", "sagittal_hip_knee_ankle"],
+                        choices=[
+                            "all",
+                            "lower_limb",
+                            "hip_knee",
+                            "sagittal_hip_knee",
+                            "sagittal_hip_knee_ankle",
+                            "sagittal_hip_flexion",
+                            "sagittal_knee",
+                            "sagittal_ankle",
+                        ],
                         help=(
                             "Output moment set: "
                             "all=all 23 moments, "
                             "lower_limb=hip+knee+ankle R/L (10), "
                             "hip_knee=hip+knee R/L (8), "
                             "sagittal_hip_knee=hip_flex+knee R/L (4), "
-                            "sagittal_hip_knee_ankle=hip_flex+knee+ankle R/L (6)"
+                            "sagittal_hip_knee_ankle=hip_flex+knee+ankle R/L (6), "
+                            "sagittal_hip_flexion / sagittal_knee / sagittal_ankle = matching joint moment R+L (2)"
                         ))
     parser.add_argument(
         "--laterality",
@@ -298,8 +269,18 @@ def main() -> None:
         choices=["bilateral", "unilateral", "both"],
         help=(
             "bilateral (alias: both): use all R/L channels as in the files. "
-            "unilateral: same DOFs; negate left hip adduction & rotation (angles, velocities, moments) "
-            "so both legs share one sign convention; right side unchanged."
+            "unilateral: negate left hip adduction & rotation (angles, velocities, moments) for a common "
+            "sign convention; when input/output index lists are symmetric R/L (e.g. sagittal modes), each "
+            "trial window start yields **two** samples (right leg and left leg), like the IMU pipeline."
+        ),
+    )
+    parser.add_argument(
+        "--legacy-unilateral-full-window",
+        action="store_true",
+        default=False,
+        help=(
+            "If --laterality=unilateral, keep **one** full R+L window per start (old2·N-DOF → N-moment "
+            "layout) instead of paired ipsilateral half-width windows."
         ),
     )
     parser.add_argument(
@@ -319,6 +300,14 @@ def main() -> None:
     parser.add_argument("--wandb-entity", type=str, default=None)
     parser.add_argument("--wandb-run-name", type=str, default=None)
     args = parser.parse_args()
+
+    _joint_sagittal_modes = frozenset({"sagittal_hip_flexion", "sagittal_knee", "sagittal_ankle"})
+    if args.input_mode in _joint_sagittal_modes or args.output_mode in _joint_sagittal_modes:
+        if args.input_mode != args.output_mode:
+            raise ValueError(
+                "For sagittal_hip_flexion / sagittal_knee / sagittal_ankle, --input-mode and "
+                f"--output-mode must be the same (got {args.input_mode!r} vs {args.output_mode!r})."
+            )
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -404,16 +393,23 @@ def main() -> None:
         lowpass_cutoff_hz=args.lowpass_cutoff_hz,
         lowpass_order=args.lowpass_order,
         median_kernel_samples=args.median_kernel_samples,
+        target_sample_rate_hz=args.target_sample_rate_hz,
     )
     print(
-        f"  Dataset denoise: LPF={ds_denoise_kw['apply_lowpass_filter']} "
+        f"  Dataset denoise: zero-phase LPF={ds_denoise_kw['apply_lowpass_filter']} "
         f"({ds_denoise_kw['lowpass_cutoff_hz']} Hz, order {ds_denoise_kw['lowpass_order']}), "
         f"median_k={args.median_kernel_samples}"
     )
+    if args.target_sample_rate_hz is not None:
+        print(f"  Resampling trials to target_sample_rate_hz={args.target_sample_rate_hz} before denoise/vel")
     if args.levelground_only:
         print("  Condition filter: --levelground-only (level-included tasks only; see dataset.py)")
     elif args.walking_only:
         print("  Condition filter: walking-like trials only (--walking-only)")
+    _pair_kw = {}
+    if args.legacy_unilateral_full_window:
+        _pair_kw["unilateral_paired_side_windows"] = False
+
     if is_h5_only_layout:
         train_ds = KineticsTCNDataset(
             data_dir=args.train_dir,
@@ -429,6 +425,7 @@ def main() -> None:
             output_mode=args.output_mode,
             laterality=args.laterality,
             max_files=args.max_train_files,
+            **_pair_kw,
             **ds_denoise_kw,
         )
     else:
@@ -443,6 +440,7 @@ def main() -> None:
             input_mode=args.input_mode,
             output_mode=args.output_mode,
             laterality=args.laterality,
+            **_pair_kw,
             **ds_denoise_kw,
         )
 
@@ -473,6 +471,7 @@ def main() -> None:
                 output_mode=args.output_mode,
                 laterality=args.laterality,
                 max_files=args.max_val_files,
+                **_pair_kw,
                 **ds_denoise_kw,
             )
         else:
@@ -488,6 +487,7 @@ def main() -> None:
                 input_mode=args.input_mode,
                 output_mode=args.output_mode,
                 laterality=args.laterality,
+                **_pair_kw,
                 **ds_denoise_kw,
             )
         val_loader = DataLoader(
@@ -516,6 +516,7 @@ def main() -> None:
     print(f"  output_mode={args.output_mode}  ({n_out} moments)")
     print(f"  Input DOFs:  {train_ds.input_dof_names}")
     print(f"  Output DOFs: {train_ds.output_dof_names}")
+    print(f"  unilateral_paired_side_windows: {train_ds.unilateral_paired}")
 
     out_dof_names = train_ds.output_dof_names
 
@@ -556,6 +557,12 @@ def main() -> None:
           f"lr={args.lr}  window={args.window_size}")
     if args.input_noise_std > 0:
         print(f"  Input noise (train only): Gaussian std={args.input_noise_std}")
+    if args.angle_jitter_std > 0:
+        n_pos = train_ds.n_input_channels // 2
+        print(
+            f"  Angle jitter (train only): std={args.angle_jitter_std} "
+            f"on first {n_pos} input channels (positions)"
+        )
     print(f"{'='*70}")
 
     for epoch in range(args.epochs):
@@ -565,6 +572,8 @@ def main() -> None:
             model, train_loader, criterion, optimizer, args.device, epoch,
             grad_clip=args.grad_clip,
             input_noise_std=args.input_noise_std,
+            angle_jitter_std=args.angle_jitter_std,
+            n_position_channels=train_ds.n_input_channels // 2,
         )
         train_losses.append(train_loss)
 
@@ -644,8 +653,15 @@ def main() -> None:
     plot_curves(train_losses, val_losses, out_dir / "training_curves.png")
 
     plot_ds = val_ds if val_ds is not None else train_ds
-    plot_sample_prediction(model, plot_ds, args.device,
-                           out_dir / "sample_prediction.png", out_dof_names)
+    _plot_hz = float(args.target_sample_rate_hz) if args.target_sample_rate_hz is not None else 200.0
+    plot_sample_prediction(
+        model,
+        plot_ds,
+        args.device,
+        out_dir / "sample_prediction.png",
+        out_dof_names,
+        sample_rate_hz=_plot_hz,
+    )
 
     if wandb_run is not None:
         if (out_dir / "training_curves.png").exists():
@@ -672,9 +688,11 @@ def main() -> None:
     print(f"  Output: {out_dir}")
     print(f"{'='*70}")
 
-    # Save run config
+    # Save run config (include derived dataset flags for ik_id.test / eval scripts)
+    _cfg_out = dict(vars(args))
+    _cfg_out["unilateral_paired_side_windows"] = train_ds.unilateral_paired
     with open(out_dir / "config.json", "w") as f:
-        json.dump(vars(args), f, indent=2)
+        json.dump(_cfg_out, f, indent=2)
 
     with open(out_dir / "subject_split.json", "w") as f:
         json.dump({
@@ -725,6 +743,9 @@ def _save_checkpoint(
         "output_mode": args.output_mode,
         "input_indices": dataset.input_indices,
         "moment_indices": dataset.moment_indices,
+        "laterality": args.laterality,
+        "unilateral_paired_side_windows": dataset.unilateral_paired,
+        "target_sample_rate_hz": getattr(args, "target_sample_rate_hz", None),
     }, path)
 
 

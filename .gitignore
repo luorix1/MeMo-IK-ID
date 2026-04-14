@@ -211,3 +211,4 @@ wandb/
 
 # checkpoints
 runs/
+results/

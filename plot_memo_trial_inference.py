@@ -152,7 +152,47 @@ def infer_full_trial(
     device: str,
     *,
     inference_mode: str = "causal",
+    unilateral_paired_full_trial: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    If ``unilateral_paired_full_trial``, run the half-width model on R and L index halves
+    and concatenate predictions (same moment order as ``moment_indices``).
+    """
+    if unilateral_paired_full_trial:
+        if input_indices is None or moment_indices is None:
+            raise ValueError("unilateral_paired_full_trial requires input_indices and moment_indices.")
+        h = len(input_indices) // 2
+        if h * 2 != len(input_indices) or len(moment_indices) != len(input_indices):
+            raise ValueError("Paired full-trial inference needs symmetric R/L index lists.")
+        pr, tr = infer_full_trial(
+            model,
+            pos,
+            vel,
+            moments,
+            input_indices[:h],
+            moment_indices[:h],
+            window_size,
+            device,
+            inference_mode=inference_mode,
+            unilateral_paired_full_trial=False,
+        )
+        pl, tl = infer_full_trial(
+            model,
+            pos,
+            vel,
+            moments,
+            input_indices[h:],
+            moment_indices[h:],
+            window_size,
+            device,
+            inference_mode=inference_mode,
+            unilateral_paired_full_trial=False,
+        )
+        return (
+            np.concatenate([pr, pl], axis=1).astype(np.float32),
+            np.concatenate([tr, tl], axis=1).astype(np.float32),
+        )
+
     if input_indices is not None:
         pos_in = pos[:, input_indices]
         vel_in = vel[:, input_indices]
@@ -394,7 +434,7 @@ def main() -> None:
         "--lowpass-cutoff-hz",
         type=float,
         default=4.0,
-        help="Zero-phase Butterworth low-pass cutoff (Hz); default matches train.py.",
+        help="Zero-phase Butterworth low-pass cutoff (Hz); default matches ik_id.train.",
     )
     parser.add_argument("--lowpass-order", type=int, default=4)
     parser.add_argument(

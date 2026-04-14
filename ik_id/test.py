@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """
-Test / evaluation script for a trained TCN moment-prediction model.
+Test / evaluation script for a trained TCN moment-prediction model (IK+vel → ID).
 
-Usage:
-    python test.py \
-        --checkpoint runs/tcn_run1/best_model.pt \
-        --test-dir /media/metamobility3/T7_Shield/test/No_Arm/Camargo2021_Formatted_No_Arm \
-        --output-dir results/tcn_eval
+Run from ``os_kinetics/``::
+
+    python -m ik_id.test ...
+    python ik_id/test.py ...
 """
+
+from __future__ import annotations
 
 import argparse
 import json
-import random
 import os
+import random
+import sys
 from pathlib import Path
-from typing import Optional, Any, Dict, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 import numpy as np
 import torch
@@ -29,11 +35,13 @@ except RuntimeError:
 from dataset import (
     KineticsTCNDataset,
     DOF_NAMES,
+    normalize_laterality,
     # Unused but kept for backward compatibility in older runs/plots.
     find_trial_dirs,
     extract_subject_id,
 )
 from model import TCN
+from training_utils import set_global_seed
 
 try:
     import matplotlib
@@ -50,18 +58,26 @@ except ImportError:
     HAS_WANDB = False
 
 
-def set_global_seed(seed: int) -> None:
-    """Set seeds for Python, NumPy, and Torch (CPU & CUDA) for reproducibility."""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+def resolve_unilateral_paired_for_eval(
+    *,
+    laterality: str,
+    ckpt_flag: Optional[bool],
+    n_in_model: int,
+    input_indices: Optional[List[int]],
+) -> bool:
+    """Match ``KineticsTCNDataset`` layout to the saved TCN width (paired ipsilateral vs full R+L window)."""
+    if ckpt_flag is not None:
+        return bool(ckpt_flag)
+    if normalize_laterality(laterality) != "unilateral":
+        return False
+    if input_indices is None:
+        return False
+    return int(n_in_model) == len(input_indices)
 
 
 def load_model(
     ckpt_path: str, device: str = "cpu",
-) -> Tuple[Any, Any, Any, int, Any, Any, str, str, Optional[int]]:
+) -> Tuple[Any, Any, Any, int, Any, Any, str, str, Optional[int], str, Optional[bool]]:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     cfg = ckpt["model_config"]
     model = TCN(
@@ -86,6 +102,10 @@ def load_model(
     train_stride   = ckpt.get("stride", None)
     if train_stride is not None:
         train_stride = int(train_stride)
+    laterality = str(ckpt.get("laterality", "bilateral"))
+    uni_paired = ckpt.get("unilateral_paired_side_windows", None)
+    if uni_paired is not None:
+        uni_paired = bool(uni_paired)
     return (
         model,
         stats,
@@ -96,6 +116,8 @@ def load_model(
         input_mode,
         output_mode,
         train_stride,
+        laterality,
+        uni_paired,
     )
 
 
@@ -124,7 +146,8 @@ def run_inference(model: torch.nn.Module, loader: Any, device: str) -> Tuple[tor
     full MeMo), use ``run_inference_streaming`` instead to avoid OOM.
     """
     all_pred, all_true = [], []
-    for x, y in loader:
+    for batch in loader:
+        x, y = batch[0], batch[1]
         x = x.to(device)
         pred = model(x)
         all_pred.append(pred.cpu())
@@ -170,7 +193,8 @@ def run_inference_streaming(
     scatter_pred_chunks: List[Any] = []
     n_scatter = 0
 
-    for x, y in loader:
+    for batch in loader:
+        x, y = batch[0], batch[1]
         x = x.to(device)
         pred = model(x)
         pb = pred.detach().cpu().numpy().astype(np.float64)
@@ -346,6 +370,8 @@ def plot_time_series(
     out_path: Path,
     sample_idx: int = 0,
     n_dofs: int = 6,
+    *,
+    sample_rate_hz: float = 200.0,
 ) -> None:
     """Plot time-series comparison for a single sample."""
     if not HAS_MPL:
@@ -353,7 +379,7 @@ def plot_time_series(
     p = pred[sample_idx]  # (C, W)
     t_arr = true[sample_idx]
     n_plot = min(n_dofs, p.shape[0])
-    time_axis = np.arange(p.shape[1]) / 200.0
+    time_axis = np.arange(p.shape[1]) / float(sample_rate_hz)
 
     fig, axes = plt.subplots(n_plot, 1, figsize=(12, 2.8 * n_plot), sharex=True)
     if n_plot == 1:
@@ -598,6 +624,15 @@ def main() -> None:
             "else window size (legacy)."
         ),
     )
+    parser.add_argument(
+        "--target-sample-rate-hz",
+        type=float,
+        default=None,
+        help=(
+            "Override trial resampling rate (Hz) for KineticsTCNDataset. "
+            "Default: use target_sample_rate_hz from config.json next to checkpoint (training value)."
+        ),
+    )
     args = parser.parse_args()
 
     set_global_seed(args.seed)
@@ -617,6 +652,8 @@ def main() -> None:
         input_mode,
         output_mode,
         stride_from_ckpt,
+        laterality_ckpt,
+        unilateral_paired_ckpt,
     ) = load_model(args.checkpoint, args.device)
     print(f"  Input mode:  {input_mode}")
     print(f"  Output mode: {output_mode}")
@@ -771,18 +808,36 @@ def main() -> None:
 
     # Match training: input/output modes and laterality from config.json when available.
     if run_cfg is not None:
+        _lat = str(run_cfg.get("laterality", laterality_ckpt))
         test_ds_kwargs.update(
             input_mode=run_cfg.get("input_mode", input_mode),
             output_mode=run_cfg.get("output_mode", output_mode),
-            laterality=run_cfg.get("laterality", "bilateral"),
+            laterality=_lat,
+        )
+        _cfg_paired = run_cfg.get("unilateral_paired_side_windows", None)
+        if _cfg_paired is not None:
+            _cfg_paired = bool(_cfg_paired)
+        _paired_flag = _cfg_paired if _cfg_paired is not None else unilateral_paired_ckpt
+        test_ds_kwargs["unilateral_paired_side_windows"] = resolve_unilateral_paired_for_eval(
+            laterality=_lat,
+            ckpt_flag=_paired_flag,
+            n_in_model=model.n_input_channels,
+            input_indices=input_indices,
         )
     else:
         test_ds_kwargs.update(
             input_indices=input_indices,
             moment_indices=moment_indices,
+            laterality=laterality_ckpt,
+            unilateral_paired_side_windows=resolve_unilateral_paired_for_eval(
+                laterality=laterality_ckpt,
+                ckpt_flag=unilateral_paired_ckpt,
+                n_in_model=model.n_input_channels,
+                input_indices=input_indices,
+            ),
         )
 
-    # Match training-time denoising when saved in config.json (train.py writes vars(args)).
+    # Match training-time denoising when saved in config.json (ik_id.train writes vars(args)).
     if run_cfg is not None and any(
         k in run_cfg
         for k in (
@@ -799,12 +854,22 @@ def main() -> None:
             median_kernel_samples=int(run_cfg.get("median_kernel_samples", 0)),
         )
         print(
-            f"  Dataset denoise (from config.json): LPF={test_ds_kwargs['apply_lowpass_filter']} "
+            f"  Dataset denoise (from config.json): zero-phase LPF={test_ds_kwargs['apply_lowpass_filter']} "
             f"({test_ds_kwargs['lowpass_cutoff_hz']} Hz), "
             f"median_k={test_ds_kwargs['median_kernel_samples']}"
         )
 
+    eval_target_sr: Optional[float] = None
+    if run_cfg is not None and run_cfg.get("target_sample_rate_hz") is not None:
+        eval_target_sr = float(run_cfg["target_sample_rate_hz"])
+    if args.target_sample_rate_hz is not None:
+        eval_target_sr = float(args.target_sample_rate_hz)
+    if eval_target_sr is not None:
+        test_ds_kwargs["target_sample_rate_hz"] = eval_target_sr
+        print(f"  Dataset resampling: target_sample_rate_hz={eval_target_sr}")
+
     test_ds = KineticsTCNDataset(**test_ds_kwargs)
+    print(f"  unilateral_paired_side_windows: {test_ds.unilateral_paired}")
 
     test_loader = DataLoader(
         test_ds,
@@ -867,6 +932,7 @@ def main() -> None:
         overall_r2=metrics["overall"].get("r2"),
     )
 
+    plot_sample_hz = float(eval_target_sr) if eval_target_sr is not None else 200.0
     for s in range(min(args.n_plot_samples, len(pred_plot))):
         plot_time_series(
             pred_plot,
@@ -874,6 +940,7 @@ def main() -> None:
             dof_names,
             out_dir / f"timeseries_sample_{s}.png",
             sample_idx=s,
+            sample_rate_hz=plot_sample_hz,
         )
 
     # ---- W&B: log plots to the training run ----
