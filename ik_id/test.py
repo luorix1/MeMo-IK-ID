@@ -682,7 +682,8 @@ def main() -> None:
 
         # config.json uses relative `runs/...` paths; wandb metadata stores the raw value passed.
         wanted_output_dir = run_cfg.get("output_dir", None)
-        wandb_root = Path(__file__).resolve().parent / "wandb"
+        # Training is typically run from ``os_kinetics/``; wandb runs live in ``<repo>/wandb/``.
+        wandb_root = Path(__file__).resolve().parent.parent / "wandb"
         matching = _find_matching_local_wandb_run(wandb_root, str(wanted_output_dir))
         if matching is not None:
             run_id, _run_dir = matching
@@ -837,27 +838,19 @@ def main() -> None:
             ),
         )
 
-    # Match training-time denoising when saved in config.json (ik_id.train writes vars(args)).
-    if run_cfg is not None and any(
-        k in run_cfg
-        for k in (
-            "no_lowpass",
-            "lowpass_cutoff_hz",
-            "lowpass_order",
-            "median_kernel_samples",
-        )
-    ):
-        test_ds_kwargs.update(
-            apply_lowpass_filter=not bool(run_cfg.get("no_lowpass", False)),
-            lowpass_cutoff_hz=float(run_cfg.get("lowpass_cutoff_hz", 4.0)),
-            lowpass_order=int(run_cfg.get("lowpass_order", 4)),
-            median_kernel_samples=int(run_cfg.get("median_kernel_samples", 0)),
-        )
-        print(
-            f"  Dataset denoise (from config.json): zero-phase LPF={test_ds_kwargs['apply_lowpass_filter']} "
-            f"({test_ds_kwargs['lowpass_cutoff_hz']} Hz), "
-            f"median_k={test_ds_kwargs['median_kernel_samples']}"
-        )
+    # Zero-phase LPF is always on for eval; cutoff/order from config.json when present (ik_id.train).
+    test_ds_kwargs["apply_lowpass_filter"] = True
+    if run_cfg is not None:
+        if "lowpass_cutoff_hz" in run_cfg:
+            test_ds_kwargs["lowpass_cutoff_hz"] = float(run_cfg["lowpass_cutoff_hz"])
+        if "lowpass_order" in run_cfg:
+            test_ds_kwargs["lowpass_order"] = int(run_cfg["lowpass_order"])
+        if "lowpass_cutoff_hz" in run_cfg or "lowpass_order" in run_cfg:
+            print(
+                f"  Dataset denoise: zero-phase LPF on "
+                f"({test_ds_kwargs['lowpass_cutoff_hz']} Hz, order {test_ds_kwargs['lowpass_order']}) "
+                f"(from config.json)"
+            )
 
     eval_target_sr: Optional[float] = None
     if run_cfg is not None and run_cfg.get("target_sample_rate_hz") is not None:

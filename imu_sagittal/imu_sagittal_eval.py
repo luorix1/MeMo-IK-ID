@@ -3,7 +3,9 @@
 Shared evaluation logic for IMU → sagittal angle / moment checkpoints (see ``imu_sagittal/test_imu_sagittal_*.py``).
 
 Mirrors ``ik_id.test`` for ``ik_id.train``: load checkpoint, build H5 test dataset with training normalization,
-run streaming inference, save metrics.json / eval_subjects.json and plots.
+run streaming inference, save metrics.json / eval_subjects.json and plots. When ``use_wandb`` is set in the run
+``config.json`` next to the checkpoint, resumes the local training run under ``<repo>/wandb/`` (same layout as
+training invoked from ``os_kinetics/``) and uploads eval plots.
 
 Unilateral IMU pipeline: **24** channels (pelvis + one-side thigh/shank/foot); **3** sagittal targets for that leg;
 same IK flip as ``ik_id.train`` ``--laterality unilateral``. Checkpoints store paired R/L IMU column layouts; training
@@ -40,6 +42,7 @@ from dataset import (
     SAGITTAL_INPUT_INDICES,
 )
 from ik_id.test import (
+    _find_matching_local_wandb_run,
     load_run_config,
     load_subject_split,
     resolve_dataset_stride,
@@ -392,6 +395,33 @@ def run_main(expected_target: str) -> None:
     print(f"  outputs (L): {output_names_left}")
 
     run_cfg = load_run_config(args.checkpoint)
+
+    wandb_run = None
+    if HAS_WANDB and run_cfg is not None and run_cfg.get("use_wandb", False):
+        if "WANDB_MODE" not in os.environ:
+            os.environ["WANDB_MODE"] = "offline"
+
+        wandb_project = run_cfg.get("wandb_project", None) or "os-kinetics-imu-sagittal"
+        wandb_entity = run_cfg.get("wandb_entity", None)
+
+        wanted_output_dir = run_cfg.get("output_dir", None)
+        wandb_root = _ROOT / "wandb"
+        matching = _find_matching_local_wandb_run(wandb_root, str(wanted_output_dir))
+        if matching is not None:
+            run_id, _run_dir = matching
+            try:
+                wandb_run = wandb.init(
+                    project=wandb_project, entity=wandb_entity, id=run_id, resume="allow"
+                )
+            except Exception as e:
+                print(f"  [wandb] Failed to resume run id={run_id}: {e}")
+                wandb_run = None
+        else:
+            print(
+                "  [wandb] Could not find matching local wandb run by training --output-dir; "
+                "skipping wandb plot upload (runs live under <repo>/wandb/ when training from os_kinetics/)."
+            )
+
     eval_stride = resolve_dataset_stride(
         stride_from_ckpt=stride_ckpt,
         run_cfg=run_cfg,
@@ -418,19 +448,15 @@ def run_main(expected_target: str) -> None:
     apply_lowpass_filter = True
     lowpass_cutoff_hz = 4.0
     lowpass_order = 4
-    median_kernel_samples = 0
     if run_cfg is not None:
-        if any(
-            k in run_cfg
-            for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order", "median_kernel_samples")
-        ):
-            apply_lowpass_filter = not bool(run_cfg.get("no_lowpass", False))
-            lowpass_cutoff_hz = float(run_cfg.get("lowpass_cutoff_hz", 4.0))
-            lowpass_order = int(run_cfg.get("lowpass_order", 4))
-            median_kernel_samples = int(run_cfg.get("median_kernel_samples", 0))
+        if "lowpass_cutoff_hz" in run_cfg:
+            lowpass_cutoff_hz = float(run_cfg["lowpass_cutoff_hz"])
+        if "lowpass_order" in run_cfg:
+            lowpass_order = int(run_cfg["lowpass_order"])
+        if "lowpass_cutoff_hz" in run_cfg or "lowpass_order" in run_cfg:
             print(
-                f"  denoise (from config): zero-phase LPF={apply_lowpass_filter} ({lowpass_cutoff_hz} Hz), "
-                f"median_k={median_kernel_samples}"
+                f"  denoise (from config): zero-phase LPF on "
+                f"({lowpass_cutoff_hz} Hz, order {lowpass_order})"
             )
 
     _levelground_only = args.levelground_only
@@ -531,7 +557,6 @@ def run_main(expected_target: str) -> None:
             apply_lowpass_filter=apply_lowpass_filter,
             lowpass_cutoff_hz=lowpass_cutoff_hz,
             lowpass_order=lowpass_order,
-            median_kernel_samples=median_kernel_samples,
             target_sample_rate_hz=eval_target_sr,
             preload_trials=False,
         )
@@ -615,21 +640,8 @@ def run_main(expected_target: str) -> None:
             indent=2,
         )
 
-    wandb_run = None
-    if HAS_WANDB and run_cfg is not None and run_cfg.get("use_wandb", False):
-        if "WANDB_MODE" not in os.environ:
-            os.environ["WANDB_MODE"] = "offline"
+    if wandb_run is not None:
         try:
-            wandb_run = wandb.init(
-                project=run_cfg.get("wandb_project", "os-kinetics-imu-sagittal"),
-                entity=run_cfg.get("wandb_entity"),
-                name=f"eval_{target}_{Path(args.output_dir).name}",
-                config={
-                    "checkpoint": args.checkpoint,
-                    "test_dir": args.test_dir,
-                    "eval_side": args.eval_side,
-                },
-            )
             to_log: Dict[str, Any] = {}
             for key, path_str in wandb_plot_paths.items():
                 p = Path(path_str)
@@ -637,10 +649,17 @@ def run_main(expected_target: str) -> None:
                     to_log[f"plots/{key}"] = wandb.Image(str(p))
             if to_log:
                 wandb.log(to_log)
+            for side_kw, file_tag in side_runs:
+                prefix = f"{side_kw}/" if file_tag else ""
+                for s in range(args.n_plot_samples):
+                    img_path = out_dir / f"timeseries_sample_{s}{file_tag}.png"
+                    if img_path.exists():
+                        wandb.log(
+                            {f"plots/{prefix}timeseries_sample_{s}": wandb.Image(str(img_path))}
+                        )
         except Exception as e:
-            print(f"  [wandb] {e}")
+            print(f"  [wandb] Failed to log images: {e}")
         finally:
-            if wandb_run is not None:
-                wandb.finish()
+            wandb.finish()
 
     print(f"\nResults saved to {out_dir}")

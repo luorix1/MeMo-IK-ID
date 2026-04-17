@@ -6,7 +6,7 @@ Creates one figure per output joint moment.
 
 IK positions, velocities, and ground-truth moments use the same denoising pipeline as
 ``dataset.load_trial_from_processed`` / ``KineticsTCNDataset`` by default (optional
-median, then zero-phase Butterworth; velocities are computed after denoising).
+zero-phase Butterworth; velocities are computed after denoising).
 
 The TCN uses **causal** convolutions (``model.CausalConv1d``): each output time only
 sees past and current inputs. Default inference uses one output per time index
@@ -72,7 +72,6 @@ def load_memo_trial(
     apply_lowpass_filter: bool = True,
     lowpass_cutoff_hz: float = 4.0,
     lowpass_order: int = 4,
-    median_kernel_samples: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     h5_path = memo_root / f"{subject_id}.h5"
     if not h5_path.exists():
@@ -120,12 +119,11 @@ def load_memo_trial(
     time_d = time.astype(np.float64)
     pos = pos.astype(np.float64)
     moments = moments.astype(np.float64)
-    if median_kernel_samples >= 3 or apply_lowpass_filter:
+    if apply_lowpass_filter:
         pos, moments = _denoise_pos_and_moments(
             pos,
             moments,
             time_d,
-            median_kernel_samples=int(median_kernel_samples),
             apply_lowpass_filter=bool(apply_lowpass_filter),
             lowpass_cutoff_hz=float(lowpass_cutoff_hz),
             lowpass_order=int(lowpass_order),
@@ -267,7 +265,6 @@ def run_single_trial_inference(
     apply_lowpass_filter: bool = True,
     lowpass_cutoff_hz: float = 4.0,
     lowpass_order: int = 4,
-    median_kernel_samples: int = 0,
 ) -> None:
     """Load one MeMo trial, run sliding-window inference, write Plotly HTML."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -280,7 +277,6 @@ def run_single_trial_inference(
         apply_lowpass_filter=apply_lowpass_filter,
         lowpass_cutoff_hz=lowpass_cutoff_hz,
         lowpass_order=lowpass_order,
-        median_kernel_samples=median_kernel_samples,
     )
     pred, true = infer_full_trial(
         model=model,
@@ -402,7 +398,6 @@ def run_single_trial_inference(
                 "apply_lowpass_filter": bool(apply_lowpass_filter),
                 "lowpass_cutoff_hz": float(lowpass_cutoff_hz),
                 "lowpass_order": int(lowpass_order),
-                "median_kernel_samples": int(median_kernel_samples),
                 "inference_mode": inference_mode,
             },
             f,
@@ -428,7 +423,7 @@ def main() -> None:
     parser.add_argument(
         "--no-lowpass",
         action="store_true",
-        help="Disable Butterworth low-pass (matches train --no-lowpass; median still applies if set).",
+        help="Disable zero-phase Butterworth low-pass (matches train --no-lowpass).",
     )
     parser.add_argument(
         "--lowpass-cutoff-hz",
@@ -437,12 +432,6 @@ def main() -> None:
         help="Zero-phase Butterworth low-pass cutoff (Hz); default matches ik_id.train.",
     )
     parser.add_argument("--lowpass-order", type=int, default=4)
-    parser.add_argument(
-        "--median-kernel-samples",
-        type=int,
-        default=0,
-        help="Temporal median kernel (>=3); 0 disables. Applied before LPF, as in dataset.py.",
-    )
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
         "--inference-mode",
@@ -476,7 +465,6 @@ def main() -> None:
         apply_lowpass_filter=not bool(args.no_lowpass),
         lowpass_cutoff_hz=float(args.lowpass_cutoff_hz),
         lowpass_order=int(args.lowpass_order),
-        median_kernel_samples=int(args.median_kernel_samples),
     )
 
 

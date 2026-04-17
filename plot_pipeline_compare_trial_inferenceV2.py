@@ -2,12 +2,15 @@
 """
 Single-trial Plotly plots for **paired ipsilateral IK** checkpoints (6→3 sagittal).
 
-Inference matches ``compare_pipelineV3.py``: per-window zero-phase LPF on IMU→angle, IMU→moment,
-and cascade moments; cascade uses LPF on predicted angles, hybrid IK, LPF on ω, then IK TCN.
+Default ``--inference-mode causal`` uses **single-stream** inference from ``compare_pipelineV3``:
+one TCN forward per head on the full trial ``(1, C, T)``, then zero-phase LPF along the full timeaxis. That matches **native** causal context from trial start (not isolated training windows).
+
+``--inference-mode overlap_mean`` keeps the slower sliding-window path (per-window LPF, aligned
+with batched ``compare_pipelineV3`` / dataloader evaluation).
 
 Outputs (default):
-  - One HTML with **3 subplots** — joint angles: GT (IK) vs IMU→angle (**LPF**, same as V3 windows).
-  - One HTML with **3 subplots** — moments: GT vs direct (**LPF**) vs cascade (**LPF**).
+  - Joint angles: GT (IK) vs IMU→angle.
+  - Moments: GT vs direct vs cascade.
 
 Optional ``--write-combined-html`` adds a single 6-row figure (angles + moments).
 
@@ -36,6 +39,8 @@ from compare_pipelineV3 import (
     _lowpass_predicted_angles,
     _lowpass_window_batch,
     _normalize_ik_tcn_input,
+    infer_cascade_moments_full_sequence,
+    infer_imu_head_full_sequence,
 )
 from dataset import (
     IK_DOF_NAMES,
@@ -175,10 +180,13 @@ def infer_cascade_full_trial_v2(
     pipeline_lpf_cutoff_hz: float = 4.0,
     pipeline_lpf_order: int = 4,
     ik_input_normalize: bool = False,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Cascade for **paired** IK TCN — same steps as ``compare_pipelineV3``:
     angle LPF → hybrid IK → vel LPF → IK head → moment LPF (per window).
+
+    Returns ``(moments_T3, imu_angle_T3)`` where ``imu_angle_*`` matches a standalone
+    IMU→angle head (LPF per window) so callers need not run the angle model twice.
     """
     n = imu.shape[0]
     if n < window_size:
@@ -207,7 +215,7 @@ def infer_cascade_full_trial_v2(
     pos23 = positions_full.astype(np.float32)
     tvec = time_1d.astype(np.float32)
 
-    def forward_cascade_window(start: int) -> np.ndarray:
+    def forward_cascade_window(start: int) -> Tuple[np.ndarray, np.ndarray]:
         end = start + W
         x_imu = torch.from_numpy(imu_n[start:end].T.astype(np.float32)).unsqueeze(0).to(device)
         pred_a = angle_model(x_imu)
@@ -244,30 +252,39 @@ def infer_cascade_full_trial_v2(
             cutoff_hz=pipeline_lpf_cutoff_hz,
             order=pipeline_lpf_order,
         )
-        pred_w = pred_ik.squeeze(0).detach().cpu().numpy()
-        return pred_w.T.astype(np.float32)
+        pred_m = pred_ik.squeeze(0).detach().cpu().numpy().T.astype(np.float32)
+        pred_ang = pred_a.squeeze(0).detach().cpu().numpy().T.astype(np.float32)
+        return pred_m, pred_ang
 
     c_out = 3
     if inference_mode == "overlap_mean":
         pred_sum = np.zeros((n, c_out), dtype=np.float64)
         pred_cnt = np.zeros((n, c_out), dtype=np.float64)
+        ang_sum = np.zeros((n, c_out), dtype=np.float64)
+        ang_cnt = np.zeros((n, c_out), dtype=np.float64)
         for start in range(0, n - W + 1):
-            pred_w = forward_cascade_window(start)
+            pred_w, pred_aw = forward_cascade_window(start)
             pred_sum[start : start + W] += pred_w
             pred_cnt[start : start + W] += 1.0
+            ang_sum[start : start + W] += pred_aw
+            ang_cnt[start : start + W] += 1.0
         pred = pred_sum / np.maximum(pred_cnt, 1.0)
+        pred_ang_out = ang_sum / np.maximum(ang_cnt, 1.0)
     elif inference_mode == "causal":
         pred = np.zeros((n, c_out), dtype=np.float64)
-        pw0 = forward_cascade_window(0)
+        pred_ang_out = np.zeros((n, c_out), dtype=np.float64)
+        pw0m, pw0a = forward_cascade_window(0)
         for g in range(W - 1):
-            pred[g] = pw0[g]
+            pred[g] = pw0m[g]
+            pred_ang_out[g] = pw0a[g]
         for start in range(0, n - W + 1):
-            pred_w = forward_cascade_window(start)
-            pred[start + W - 1] = pred_w[W - 1]
+            pwm, pwa = forward_cascade_window(start)
+            pred[start + W - 1] = pwm[W - 1]
+            pred_ang_out[start + W - 1] = pwa[W - 1]
     else:
         raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
 
-    return pred.astype(np.float32)
+    return pred.astype(np.float32), pred_ang_out.astype(np.float32)
 
 
 def run_single_trial(
@@ -295,7 +312,6 @@ def run_single_trial(
     apply_lowpass_filter: bool,
     lowpass_cutoff_hz: float,
     lowpass_order: int,
-    median_kernel_samples: int,
     ckpt_paths: dict,
     ik_input_normalize: bool,
     target_sample_rate_hz: Optional[float] = None,
@@ -318,8 +334,8 @@ def run_single_trial(
         apply_lowpass_filter=apply_lowpass_filter,
         lowpass_cutoff_hz=lowpass_cutoff_hz,
         lowpass_order=lowpass_order,
-        median_kernel_samples=median_kernel_samples,
         target_sample_rate_hz=target_sample_rate_hz,
+        trim_nonfinite_imu_suffix=True,
     )
     if trial_data is None:
         raise RuntimeError(f"Could not load trial {sid} / {condition} / {trial} (need ik+id+imu).")
@@ -335,40 +351,69 @@ def run_single_trial(
     time = trial_data["time"]
     t_rel = (time - time[0]).astype(np.float64)
 
-    pred_d, _ = infer_imu_full_trial_pipeline_v3(
-        m_direct,
-        imu,
-        y_true,
-        stats_imu["imu_mean"],
-        stats_imu["imu_std"],
-        time,
-        window_size,
-        device,
-        inference_mode=inference_mode,
-        pipeline_lpf_apply=apply_lowpass_filter,
-        pipeline_lpf_cutoff_hz=lowpass_cutoff_hz,
-        pipeline_lpf_order=lowpass_order,
-    )
-
-    pred_c = infer_cascade_full_trial_v2(
-        m_angle,
-        ik_model,
-        imu,
-        trial_data["positions"],
-        trial_data["time"],
-        stats_imu["imu_mean"],
-        stats_imu["imu_std"],
-        ik_stats,
-        side_ik_indices,
-        window_size,
-        device,
-        eval_side,
-        inference_mode=inference_mode,
-        pipeline_lpf_apply=apply_lowpass_filter,
-        pipeline_lpf_cutoff_hz=lowpass_cutoff_hz,
-        pipeline_lpf_order=lowpass_order,
-        ik_input_normalize=ik_input_normalize,
-    )
+    if inference_mode == "causal":
+        pred_d = infer_imu_head_full_sequence(
+            m_direct,
+            imu,
+            stats_imu["imu_mean"],
+            stats_imu["imu_std"],
+            time,
+            device,
+            pipeline_lpf_apply=apply_lowpass_filter,
+            pipeline_lpf_cutoff_hz=lowpass_cutoff_hz,
+            pipeline_lpf_order=lowpass_order,
+        )
+        pred_c, pred_ang = infer_cascade_moments_full_sequence(
+            m_angle,
+            ik_model,
+            imu,
+            trial_data["positions"],
+            trial_data["time"],
+            stats_imu["imu_mean"],
+            stats_imu["imu_std"],
+            ik_stats,
+            side_ik_indices,
+            device,
+            eval_side,
+            pipeline_lpf_apply=apply_lowpass_filter,
+            pipeline_lpf_cutoff_hz=lowpass_cutoff_hz,
+            pipeline_lpf_order=lowpass_order,
+            ik_input_normalize=ik_input_normalize,
+        )
+    else:
+        pred_d, _ = infer_imu_full_trial_pipeline_v3(
+            m_direct,
+            imu,
+            y_true,
+            stats_imu["imu_mean"],
+            stats_imu["imu_std"],
+            time,
+            window_size,
+            device,
+            inference_mode=inference_mode,
+            pipeline_lpf_apply=apply_lowpass_filter,
+            pipeline_lpf_cutoff_hz=lowpass_cutoff_hz,
+            pipeline_lpf_order=lowpass_order,
+        )
+        pred_c, pred_ang = infer_cascade_full_trial_v2(
+            m_angle,
+            ik_model,
+            imu,
+            trial_data["positions"],
+            trial_data["time"],
+            stats_imu["imu_mean"],
+            stats_imu["imu_std"],
+            ik_stats,
+            side_ik_indices,
+            window_size,
+            device,
+            eval_side,
+            inference_mode=inference_mode,
+            pipeline_lpf_apply=apply_lowpass_filter,
+            pipeline_lpf_cutoff_hz=lowpass_cutoff_hz,
+            pipeline_lpf_order=lowpass_order,
+            ik_input_normalize=ik_input_normalize,
+        )
 
     if eval_side == "right":
         y_true_ang = pos6[:, :3].copy()
@@ -377,30 +422,24 @@ def run_single_trial(
         y_true_ang = pos6[:, 3:6].copy()
         angle_dof_names = [IK_DOF_NAMES[i] for i in SAGITTAL_INPUT_INDICES[3:]]
 
-    pred_ang, _ = infer_imu_full_trial_pipeline_v3(
-        m_angle,
-        imu,
-        y_true_ang,
-        stats_imu["imu_mean"],
-        stats_imu["imu_std"],
-        time,
-        window_size,
-        device,
-        inference_mode=inference_mode,
-        pipeline_lpf_apply=apply_lowpass_filter,
-        pipeline_lpf_cutoff_hz=lowpass_cutoff_hz,
-        pipeline_lpf_order=lowpass_order,
-    )
-
     if eval_side == "right":
         dof_names = [MOMENT_NAMES[i] for i in SAGITTAL_HIP_KNEE_ANKLE_MOMENT_INDICES[:3]]
     else:
         dof_names = [MOMENT_NAMES[i] for i in SAGITTAL_HIP_KNEE_ANKLE_MOMENT_INDICES[3:]]
 
-    _lpf_note = (
+    _lpf_base = (
         f"pipeline LPF {lowpass_cutoff_hz} Hz, order {lowpass_order}"
         if apply_lowpass_filter
-        else "pipeline LPF off (raw window outputs)"
+        else "pipeline LPF off"
+    )
+    if inference_mode == "causal":
+        _lpf_note = f"single-stream causal + trial-axis LPF ({_lpf_base})"
+    else:
+        _lpf_note = f"sliding-window ({_lpf_base})"
+    _ang_pred_label = (
+        "IMU → angle (full-sequence causal)"
+        if inference_mode == "causal"
+        else "IMU → angle (LPF per window, V3)"
     )
 
     fig_ang = make_subplots(
@@ -430,7 +469,7 @@ def run_single_trial(
                 x=t_rel,
                 y=pred_ang[:, c],
                 mode="lines",
-                name="IMU → angle (LPF per window, V3)",
+                name=_ang_pred_label,
                 line=dict(width=2, dash="dash", color="#2ecc71"),
                 legendgroup="pred",
                 showlegend=(c == 0),
@@ -535,7 +574,15 @@ def run_single_trial(
                 col=1,
             )
             fig_all.add_trace(
-                go.Scatter(x=t_rel, y=pred_ang[:, c], mode="lines", name="IMU→angle LPF", line=dict(width=1.5, dash="dash", color="#2ecc71"), legendgroup="a", showlegend=(c == 0)),
+                go.Scatter(
+                    x=t_rel,
+                    y=pred_ang[:, c],
+                    mode="lines",
+                    name=_ang_pred_label,
+                    line=dict(width=1.5, dash="dash", color="#2ecc71"),
+                    legendgroup="a",
+                    showlegend=(c == 0),
+                ),
                 row=row,
                 col=1,
             )
@@ -587,6 +634,11 @@ def run_single_trial(
                 "sample_rate_hz": sample_rate_hz,
                 "target_sample_rate_hz": target_sample_rate_hz,
                 "inference_mode": inference_mode,
+                "neural_implementation": (
+                    "full_sequence_causal"
+                    if inference_mode == "causal"
+                    else "sliding_window"
+                ),
                 "apply_lowpass_filter": apply_lowpass_filter,
                 "lowpass_cutoff_hz": lowpass_cutoff_hz,
                 "lowpass_order": lowpass_order,
@@ -602,7 +654,6 @@ def run_single_trial(
                     "cascade_angular_velocity_after_hybrid_ik": True,
                     "cascade_moment_head_per_window": True,
                 },
-                "median_kernel_samples": median_kernel_samples,
                 "n_combined_moment_figures": saved_moments,
                 "n_combined_angle_figures": saved_angles,
                 "angle_dof_names": angle_dof_names,
@@ -659,7 +710,6 @@ def main() -> None:
     p.add_argument("--no-lowpass", action="store_true")
     p.add_argument("--lowpass-cutoff-hz", type=float, default=4.0)
     p.add_argument("--lowpass-order", type=int, default=4)
-    p.add_argument("--median-kernel-samples", type=int, default=0)
     p.add_argument(
         "--ik-input-normalize",
         action="store_true",
@@ -753,14 +803,12 @@ def main() -> None:
     apply_lp = not args.no_lowpass
     lp_hz = float(args.lowpass_cutoff_hz)
     lp_ord = int(args.lowpass_order)
-    med_k = int(args.median_kernel_samples)
     if run_cfg is not None and any(
-        k in run_cfg for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order", "median_kernel_samples")
+        k in run_cfg for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order")
     ):
         apply_lp = not bool(run_cfg.get("no_lowpass", False))
         lp_hz = float(run_cfg.get("lowpass_cutoff_hz", lp_hz))
         lp_ord = int(run_cfg.get("lowpass_order", lp_ord))
-        med_k = int(run_cfg.get("median_kernel_samples", med_k))
 
     imu_tgt_sr: Optional[float] = None
     if args.target_sample_rate_hz is not None:
@@ -801,7 +849,6 @@ def main() -> None:
         apply_lowpass_filter=apply_lp,
         lowpass_cutoff_hz=lp_hz,
         lowpass_order=lp_ord,
-        median_kernel_samples=med_k,
         ckpt_paths=ckpt_paths,
         ik_input_normalize=bool(args.ik_input_normalize),
         target_sample_rate_hz=imu_tgt_sr,

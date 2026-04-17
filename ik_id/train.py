@@ -4,7 +4,8 @@ Training script for TCN-based joint moment prediction.
 
 Key behaviors:
   - Subject-based split: train and validation subjects are disjoint.
-  - Dataset IK/ID Butterworth low-pass (unless --no-lowpass) is **zero-phase** (``sosfiltfilt`` in ``dataset._lowpass_zero_phase``), not causal one-pass filtering.
+  - Dataset IK/ID Butterworth low-pass is **always on** (4 Hz Butterworth by default, overridable): **zero-phase**
+    (``sosfiltfilt`` in ``dataset._lowpass_zero_phase``), not causal one-pass filtering.
   - Optional training-time Gaussian input noise (--input-noise-std); not applied at validation.
   - Optional angle-only jitter (--angle-jitter-std) on position channels (first half of IK pos+vel
     inputs); not applied at validation.
@@ -187,14 +188,6 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--no-lowpass",
-        action="store_true",
-        help=(
-            "Disable zero-phase Butterworth low-pass in the dataset loader (SciPy sosfiltfilt; "
-            "median filter still applies if set)."
-        ),
-    )
-    parser.add_argument(
         "--lowpass-cutoff-hz",
         type=float,
         default=4.0,
@@ -205,15 +198,6 @@ def main() -> None:
         type=int,
         default=4,
         help="Butterworth order for the zero-phase (forward-backward) low-pass on IK/ID in the loader.",
-    )
-    parser.add_argument(
-        "--median-kernel-samples",
-        type=int,
-        default=0,
-        help=(
-            "Temporal median kernel length (samples, >=3, odd enforced). "
-            "Try 5–9 at ~200 Hz to suppress impulse / double-peak noise before LPF."
-        ),
     )
     parser.add_argument(
         "--target-sample-rate-hz",
@@ -389,16 +373,14 @@ def main() -> None:
     print("LOADING TRAINING DATA")
     print("=" * 70)
     ds_denoise_kw = dict(
-        apply_lowpass_filter=not args.no_lowpass,
+        apply_lowpass_filter=True,
         lowpass_cutoff_hz=args.lowpass_cutoff_hz,
         lowpass_order=args.lowpass_order,
-        median_kernel_samples=args.median_kernel_samples,
         target_sample_rate_hz=args.target_sample_rate_hz,
     )
     print(
-        f"  Dataset denoise: zero-phase LPF={ds_denoise_kw['apply_lowpass_filter']} "
-        f"({ds_denoise_kw['lowpass_cutoff_hz']} Hz, order {ds_denoise_kw['lowpass_order']}), "
-        f"median_k={args.median_kernel_samples}"
+        f"  Dataset denoise: zero-phase LPF always on "
+        f"({ds_denoise_kw['lowpass_cutoff_hz']} Hz, order {ds_denoise_kw['lowpass_order']})"
     )
     if args.target_sample_rate_hz is not None:
         print(f"  Resampling trials to target_sample_rate_hz={args.target_sample_rate_hz} before denoise/vel")

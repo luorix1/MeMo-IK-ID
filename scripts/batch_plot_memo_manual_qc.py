@@ -54,7 +54,6 @@ def main() -> None:
     )
     p.add_argument("--lowpass-cutoff-hz", type=float, default=4.0)
     p.add_argument("--lowpass-order", type=int, default=4)
-    p.add_argument("--median-kernel-samples", type=int, default=0)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     args = p.parse_args()
 
@@ -103,7 +102,6 @@ def main() -> None:
                     apply_lowpass_filter=not bool(args.no_lowpass),
                     lowpass_cutoff_hz=float(args.lowpass_cutoff_hz),
                     lowpass_order=int(args.lowpass_order),
-                    median_kernel_samples=int(args.median_kernel_samples),
                 )
                 summary.append((subject_id, condition, trial, "ok"))
             except ValueError as e:

@@ -511,14 +511,12 @@ def main() -> None:
     apply_lowpass_filter = True
     lowpass_cutoff_hz = 4.0
     lowpass_order = 4
-    median_kernel_samples = 0
     if run_cfg is not None and any(
-        k in run_cfg for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order", "median_kernel_samples")
+        k in run_cfg for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order")
     ):
         apply_lowpass_filter = not bool(run_cfg.get("no_lowpass", False))
         lowpass_cutoff_hz = float(run_cfg.get("lowpass_cutoff_hz", 4.0))
         lowpass_order = int(run_cfg.get("lowpass_order", 4))
-        median_kernel_samples = int(run_cfg.get("median_kernel_samples", 0))
 
     _levelground_only = args.levelground_only
     if run_cfg is not None and "levelground_only" in run_cfg:
@@ -577,7 +575,6 @@ def main() -> None:
         apply_lowpass_filter=apply_lowpass_filter,
         lowpass_cutoff_hz=lowpass_cutoff_hz,
         lowpass_order=lowpass_order,
-        median_kernel_samples=median_kernel_samples,
         target_sample_rate_hz=imu_tgt_sr,
         preload_trials=False,
     )

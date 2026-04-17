@@ -215,7 +215,6 @@ def run_single_trial(
     apply_lowpass_filter: bool,
     lowpass_cutoff_hz: float,
     lowpass_order: int,
-    median_kernel_samples: int,
     ckpt_paths: dict,
     target_sample_rate_hz: Optional[float] = None,
 ) -> None:
@@ -237,7 +236,6 @@ def run_single_trial(
         apply_lowpass_filter=apply_lowpass_filter,
         lowpass_cutoff_hz=lowpass_cutoff_hz,
         lowpass_order=lowpass_order,
-        median_kernel_samples=median_kernel_samples,
         target_sample_rate_hz=target_sample_rate_hz,
     )
     if trial_data is None:
@@ -681,7 +679,6 @@ def run_single_trial(
                     "order": int(lowpass_order),
                     "note": "Full-trial zero-phase LPF on cascade N·m/kg trajectories for extra HTML plots.",
                 },
-                "median_kernel_samples": median_kernel_samples,
                 "n_moment_plots": saved_moments,
                 "n_angle_plots": saved_angles,
                 "angle_dof_names": angle_dof_names,
@@ -729,7 +726,6 @@ def main() -> None:
     p.add_argument("--no-lowpass", action="store_true")
     p.add_argument("--lowpass-cutoff-hz", type=float, default=4.0)
     p.add_argument("--lowpass-order", type=int, default=4)
-    p.add_argument("--median-kernel-samples", type=int, default=0)
     args = p.parse_args()
 
     h5_dir = Path(args.h5_dir)
@@ -813,14 +809,12 @@ def main() -> None:
     apply_lp = not args.no_lowpass
     lp_hz = float(args.lowpass_cutoff_hz)
     lp_ord = int(args.lowpass_order)
-    med_k = int(args.median_kernel_samples)
     if run_cfg is not None and any(
-        k in run_cfg for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order", "median_kernel_samples")
+        k in run_cfg for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order")
     ):
         apply_lp = not bool(run_cfg.get("no_lowpass", False))
         lp_hz = float(run_cfg.get("lowpass_cutoff_hz", lp_hz))
         lp_ord = int(run_cfg.get("lowpass_order", lp_ord))
-        med_k = int(run_cfg.get("median_kernel_samples", med_k))
 
     imu_tgt_sr: Optional[float] = None
     if args.target_sample_rate_hz is not None:
@@ -861,7 +855,6 @@ def main() -> None:
         apply_lowpass_filter=apply_lp,
         lowpass_cutoff_hz=lp_hz,
         lowpass_order=lp_ord,
-        median_kernel_samples=med_k,
         ckpt_paths=ckpt_paths,
         target_sample_rate_hz=imu_tgt_sr,
     )

@@ -18,6 +18,9 @@ Run from ``os_kinetics/``::
 
 **Compared to** ``ik_id.train`` **/** ``KineticsTCNDataset``: train window **stride** is fixed at **1**. **Validation**
 stride defaults to **``--window-size``** (non-overlapping). IMU channels are z-scored; IK pipeline uses raw rad/rad/s.
+
+**Weights & Biases** logging matches ``ik_id.train`` (``--use-wandb`` default on, ``--wandb-project`` / entity / run name,
+per-epoch train/val metrics, training curves and sample prediction images).
 """
 
 from __future__ import annotations
@@ -209,26 +212,17 @@ def main() -> None:
     p.add_argument("--no-walking-only", dest="walking_only", action="store_false")
     p.add_argument("--levelground-only", action="store_true", default=False)
     p.add_argument(
-        "--no-lowpass",
-        action="store_true",
-        help=(
-            "Disable zero-phase Butterworth on IK/ID targets in the loader (SciPy sosfiltfilt; "
-            "median filter still applies if set)."
-        ),
-    )
-    p.add_argument(
         "--lowpass-cutoff-hz",
         type=float,
         default=4.0,
-        help="Zero-phase Butterworth cutoff (Hz) on IK positions and ID moments. Try 3–6 for gait.",
+        help="Zero-phase Butterworth cutoff (Hz) on IMU, IK positions, and ID moments. Try 3–6 for gait.",
     )
     p.add_argument(
         "--lowpass-order",
         type=int,
         default=4,
-        help="Butterworth order for zero-phase (forward-backward) IK/ID low-pass in the loader.",
+        help="Butterworth order for zero-phase (forward-backward) IMU + IK/ID low-pass in the loader.",
     )
-    p.add_argument("--median-kernel-samples", type=int, default=0)
     p.add_argument(
         "--target-sample-rate-hz",
         type=float,
@@ -252,7 +246,7 @@ def main() -> None:
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--max-train-trials", type=int, default=None)
     p.add_argument("--max-val-trials", type=int, default=None)
-    p.add_argument("--use-wandb", action="store_true", default=False)
+    p.add_argument("--use-wandb", action="store_true", default=True)
     p.add_argument("--wandb-project", type=str, default="os-kinetics-imu-sagittal")
     p.add_argument("--wandb-entity", type=str, default=None)
     p.add_argument("--wandb-run-name", type=str, default=None)
@@ -320,10 +314,9 @@ def main() -> None:
         walking_only=args.walking_only,
         levelground_only=args.levelground_only,
         normalize=True,
-        apply_lowpass_filter=not args.no_lowpass,
+        apply_lowpass_filter=True,
         lowpass_cutoff_hz=args.lowpass_cutoff_hz,
         lowpass_order=args.lowpass_order,
-        median_kernel_samples=args.median_kernel_samples,
         target_sample_rate_hz=args.target_sample_rate_hz,
         preload_trials=False,
     )
@@ -386,15 +379,29 @@ def main() -> None:
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
 
     wandb_run = None
-    if args.use_wandb and HAS_WANDB:
-        wandb_run = wandb.init(
-            project=args.wandb_project,
-            entity=args.wandb_entity,
-            name=args.wandb_run_name,
-            config=vars(args),
-        )
+    if args.use_wandb:
+        if not HAS_WANDB:
+            print("wandb is not installed. Install with: pip install wandb")
+        else:
+            wandb_run = wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=args.wandb_run_name,
+                config=vars(args),
+            )
+            wandb.config.update(
+                {
+                    "train_subjects": train_subjects,
+                    "val_subjects": val_subjects,
+                    "test_subjects": test_subjects,
+                    "n_train_windows": len(train_ds),
+                    "n_val_windows": len(val_ds),
+                },
+                allow_val_change=True,
+            )
 
     y_label = "rad" if args.target == "angle" else "N·m/kg"
+    out_ch_names = train_ds.output_names_right
     best_val = float("inf")
     epochs_no_improve = 0
     train_losses: List[float] = []
@@ -413,9 +420,13 @@ def main() -> None:
             input_noise_std=args.input_noise_std,
         )
         train_losses.append(tr_loss)
-        val_loss, _, _, _ = evaluate(model, val_loader, criterion, args.device)
+        val_loss, per_ch_rmse, r2_global, per_ch_r2 = evaluate(
+            model, val_loader, criterion, args.device
+        )
         val_losses.append(val_loss)
         scheduler.step()
+        ep_time = time.time() - t0
+        lr_now = optimizer.param_groups[0]["lr"]
 
         improved = val_loss < best_val
         if improved:
@@ -438,13 +449,29 @@ def main() -> None:
             epochs_no_improve += 1
             tag = ""
 
+        r2_str = f"{r2_global:.4f}" if np.isfinite(r2_global) else "nan"
         print(
-            f"Epoch {epoch+1:3d}/{args.epochs}  train_mse={tr_loss:.6f}  val_mse={val_loss:.6f}{tag}  "
-            f"time={time.time()-t0:.1f}s"
+            f"Epoch {epoch+1:3d}/{args.epochs}  train_mse={tr_loss:.6f}  val_mse={val_loss:.6f}  "
+            f"val_R2={r2_str}{tag}  lr={lr_now:.2e}  time={ep_time:.1f}s"
         )
 
         if wandb_run is not None:
-            wandb.log({"epoch": epoch + 1, "train/mse": tr_loss, "val/mse": val_loss})
+            log_dict = {
+                "epoch": epoch + 1,
+                "train/mse": tr_loss,
+                "train/lr": lr_now,
+                "train/epoch_time_sec": ep_time,
+                "val/mse": val_loss,
+            }
+            if np.isfinite(r2_global):
+                log_dict["val/r2"] = float(r2_global)
+            for i, rmse in enumerate(per_ch_rmse):
+                if i < len(out_ch_names):
+                    log_dict[f"val/rmse/{out_ch_names[i]}"] = float(rmse)
+            for i, r2c in enumerate(per_ch_r2):
+                if i < len(out_ch_names) and np.isfinite(r2c):
+                    log_dict[f"val/r2/{out_ch_names[i]}"] = float(r2c)
+            wandb.log(log_dict)
 
         if args.early_stopping_patience > 0 and epochs_no_improve >= args.early_stopping_patience:
             print(f"Early stopping at epoch {epoch+1}")
@@ -473,6 +500,12 @@ def main() -> None:
         y_label=y_label,
         sample_rate_hz=_phz,
     )
+
+    if wandb_run is not None:
+        if (out_dir / "training_curves.png").exists():
+            wandb.log({"plots/training_curves": wandb.Image(str(out_dir / "training_curves.png"))})
+        if (out_dir / "sample_prediction.png").exists():
+            wandb.log({"plots/sample_prediction": wandb.Image(str(out_dir / "sample_prediction.png"))})
 
     with open(out_dir / "config.json", "w") as f:
         json.dump(vars(args), f, indent=2)

@@ -124,6 +124,132 @@ def _lowpass_predicted_angles(
     )
 
 
+@torch.no_grad()
+def infer_imu_head_full_sequence(
+    model: torch.nn.Module,
+    imu: np.ndarray,
+    imu_mean: np.ndarray,
+    imu_std: np.ndarray,
+    time_1d: np.ndarray,
+    device: str,
+    *,
+    pipeline_lpf_apply: bool = True,
+    pipeline_lpf_cutoff_hz: float = 4.0,
+    pipeline_lpf_order: int = 4,
+) -> np.ndarray:
+    """
+    **Single-stream causal inference:** one TCN forward on ``(1, C_in, T)`` plus optional
+    zero-phase Butterworth on the **full** time axis (one SciPy pass per channel).
+
+    The causal stack sees IMU from the beginning of the trial at every frame. That differs from
+    sliding-window evaluation where each window only sees ``window_size`` frames — use windowed
+    helpers when you need an exact match to batched training windows.
+    """
+    if imu.ndim != 2:
+        raise ValueError(f"imu must be (T, C), got {imu.shape}")
+    n = imu.shape[0]
+    if len(time_1d) != n:
+        raise ValueError("time_1d length must match IMU length.")
+    imu_mean = np.asarray(imu_mean, dtype=np.float64).reshape(1, -1)
+    imu_std = np.asarray(imu_std, dtype=np.float64).reshape(1, -1)
+    imu_n = (imu.astype(np.float64) - imu_mean) / imu_std
+    dev = torch.device(device)
+    x = torch.from_numpy(imu_n.T.astype(np.float32)).unsqueeze(0).to(dev)
+    time_b = torch.from_numpy(time_1d.astype(np.float32)).unsqueeze(0).to(dev)
+    pred = model(x)
+    pred = _lowpass_window_batch(
+        pred,
+        time_b,
+        apply=pipeline_lpf_apply,
+        cutoff_hz=pipeline_lpf_cutoff_hz,
+        order=pipeline_lpf_order,
+    )
+    return pred.squeeze(0).detach().cpu().numpy().T.astype(np.float32)
+
+
+@torch.no_grad()
+def infer_cascade_moments_full_sequence(
+    angle_model: torch.nn.Module,
+    ik_model: torch.nn.Module,
+    imu: np.ndarray,
+    positions_full: np.ndarray,
+    time_1d: np.ndarray,
+    imu_mean: np.ndarray,
+    imu_std: np.ndarray,
+    ik_stats: Dict[str, np.ndarray],
+    side_ik_indices: List[int],
+    device: str,
+    eval_side: str,
+    *,
+    pipeline_lpf_apply: bool = True,
+    pipeline_lpf_cutoff_hz: float = 4.0,
+    pipeline_lpf_order: int = 4,
+    ik_input_normalize: bool = False,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    **Single-stream causal cascade:** one forward each for IMU→angle and IK→moment TCNs on
+    full-trial tensors, sharing the same hybrid IK / velocity / LPF path as the batched V3
+    pipeline. Returns ``(moments (T, 3), imu_sagittal_angles (T, 3))``.
+    """
+    n = imu.shape[0]
+    if positions_full.shape != (n, 23):
+        raise ValueError(f"positions_full must be (T, 23), got {positions_full.shape}")
+    if len(time_1d) != n:
+        raise ValueError("time_1d length must match IMU length.")
+    es = eval_side.lower()
+    if es == "right":
+        sl6 = slice(0, 3)
+    elif es == "left":
+        sl6 = slice(3, 6)
+    else:
+        raise ValueError("eval_side must be 'right' or 'left'")
+
+    imu_mean = np.asarray(imu_mean, dtype=np.float64).reshape(1, -1)
+    imu_std = np.asarray(imu_std, dtype=np.float64).reshape(1, -1)
+    imu_n = (imu.astype(np.float64) - imu_mean) / imu_std
+    dev = torch.device(device)
+    pos23 = positions_full.astype(np.float32)
+    x_imu = torch.from_numpy(imu_n.T.astype(np.float32)).unsqueeze(0).to(device)
+    time_b = torch.from_numpy(time_1d.astype(np.float32)).unsqueeze(0).to(device)
+    pos23_b = torch.from_numpy(pos23.T.copy()).unsqueeze(0).to(device)
+
+    pred_a = angle_model(x_imu)
+    pred_a = _lowpass_predicted_angles(
+        pred_a,
+        time_b,
+        apply=pipeline_lpf_apply,
+        cutoff_hz=pipeline_lpf_cutoff_hz,
+        order=pipeline_lpf_order,
+    )
+    pos6, vel6 = _cascade_pos6_vel6_from_full_ik(
+        pred_a,
+        pos23_b,
+        time_b,
+        eval_side,
+        dev,
+        vel_lowpass_apply=pipeline_lpf_apply,
+        vel_lowpass_cutoff_hz=pipeline_lpf_cutoff_hz,
+        vel_lowpass_order=pipeline_lpf_order,
+    )
+    pos3 = pos6[:, sl6, :]
+    vel3 = vel6[:, sl6, :]
+    if ik_input_normalize:
+        x_ik = _normalize_ik_tcn_input(pos3, vel3, ik_stats, side_ik_indices, dev)
+    else:
+        x_ik = _ik_moment_tcn_input(pos3, vel3)
+    pred_c = ik_model(x_ik)
+    pred_c = _lowpass_window_batch(
+        pred_c,
+        time_b,
+        apply=pipeline_lpf_apply,
+        cutoff_hz=pipeline_lpf_cutoff_hz,
+        order=pipeline_lpf_order,
+    )
+    pred_m = pred_c.squeeze(0).detach().cpu().numpy().T.astype(np.float32)
+    pred_ang = pred_a.squeeze(0).detach().cpu().numpy().T.astype(np.float32)
+    return pred_m, pred_ang
+
+
 def _cascade_pos6_vel6_from_full_ik(
     pred_a: torch.Tensor,
     pos23_gt: torch.Tensor,
@@ -571,14 +697,12 @@ def main() -> None:
     apply_lowpass_filter = True
     lowpass_cutoff_hz = 4.0
     lowpass_order = 4
-    median_kernel_samples = 0
     if run_cfg is not None and any(
-        k in run_cfg for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order", "median_kernel_samples")
+        k in run_cfg for k in ("no_lowpass", "lowpass_cutoff_hz", "lowpass_order")
     ):
         apply_lowpass_filter = not bool(run_cfg.get("no_lowpass", False))
         lowpass_cutoff_hz = float(run_cfg.get("lowpass_cutoff_hz", 4.0))
         lowpass_order = int(run_cfg.get("lowpass_order", 4))
-        median_kernel_samples = int(run_cfg.get("median_kernel_samples", 0))
 
     _levelground_only = args.levelground_only
     if run_cfg is not None and "levelground_only" in run_cfg:
@@ -635,7 +759,6 @@ def main() -> None:
         apply_lowpass_filter=apply_lowpass_filter,
         lowpass_cutoff_hz=lowpass_cutoff_hz,
         lowpass_order=lowpass_order,
-        median_kernel_samples=median_kernel_samples,
         target_sample_rate_hz=imu_tgt_sr,
         preload_trials=False,
     )

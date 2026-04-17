@@ -12,9 +12,9 @@ Each time window yields **up to two** examples (right and/or left) when ``sides=
 Pelvis channels are the **same** signals in both chains; segment column counts must match so each chain has
 ``IMU_UNILATERAL_N_CHANNELS`` (24 with 6 signals × 4 segments).
 
-IK positions and ID moments use the same optional denoising as ``KineticsTCNDataset``:
-median (optional) then **zero-phase** Butterworth via ``dataset._denoise_pos_and_moments`` (``sosfiltfilt``).
-IMU streams are not Butterworth-filtered in the loader (only interpolated to the IK time base).
+IK positions, ID moments, and **IMU channels** use the same optional denoising as ``KineticsTCNDataset``:
+**zero-phase** Butterworth via ``dataset._denoise_pos_and_moments`` and ``dataset._lowpass_trial_channels``
+(``sosfiltfilt``), after alignment / optional resampling to the IK time base.
 """
 
 from __future__ import annotations
@@ -43,6 +43,7 @@ from dataset import (
     _compute_velocity,
     _denoise_pos_and_moments,
     _ik_time_and_pos_deg,
+    _lowpass_trial_channels,
     _load_subject_metadata_map,
     _read_h5_opensim_table,
     include_condition_for_dataset,
@@ -171,8 +172,8 @@ def _load_trial_imu_sagittal_paired(
     apply_lowpass_filter: bool,
     lowpass_cutoff_hz: float,
     lowpass_order: int,
-    median_kernel_samples: int,
     target_sample_rate_hz: Optional[float] = None,
+    trim_nonfinite_imu_suffix: bool = False,
 ) -> Optional[Dict[str, Any]]:
     subj_id, cond_name, trial_name, subject_h5_path = ref
     h5_path = Path(subject_h5_path)
@@ -199,11 +200,22 @@ def _load_trial_imu_sagittal_paired(
         t_ik = ik_data[:, ik_cols.index("time")]
         imu_r = _imu_matrix_for_schema(imu_group, t_ik, imu_schema_right)
         imu_l = _imu_matrix_for_schema(imu_group, t_ik, imu_schema_left)
-
-    if imu_r is None or imu_l is None:
-        return None
-    if not np.all(np.isfinite(imu_r)) or not np.all(np.isfinite(imu_l)):
-        return None
+        if imu_r is None or imu_l is None:
+            return None
+        if trim_nonfinite_imu_suffix:
+            ok_row = np.isfinite(imu_r).all(axis=1) & np.isfinite(imu_l).all(axis=1)
+            if not np.any(ok_row):
+                return None
+            first_bad = np.flatnonzero(~ok_row)
+            n_keep = int(first_bad[0]) if first_bad.size else int(imu_r.shape[0])
+            if n_keep < 2:
+                return None
+            ik_data = ik_data[:n_keep]
+            id_data = id_data[:n_keep]
+            imu_r = imu_r[:n_keep]
+            imu_l = imu_l[:n_keep]
+        elif not np.all(np.isfinite(imu_r)) or not np.all(np.isfinite(imu_l)):
+            return None
 
     if "time" not in id_cols:
         return None
@@ -248,12 +260,25 @@ def _load_trial_imu_sagittal_paired(
         imu_r = imu_rn
         imu_l = imu_ln
 
-    if median_kernel_samples >= 3 or apply_lowpass_filter:
+    if apply_lowpass_filter:
         pos, moments = _denoise_pos_and_moments(
             pos,
             moments,
             time,
-            median_kernel_samples=median_kernel_samples,
+            apply_lowpass_filter=apply_lowpass_filter,
+            lowpass_cutoff_hz=lowpass_cutoff_hz,
+            lowpass_order=lowpass_order,
+        )
+        imu_r = _lowpass_trial_channels(
+            imu_r,
+            time,
+            apply_lowpass_filter=apply_lowpass_filter,
+            lowpass_cutoff_hz=lowpass_cutoff_hz,
+            lowpass_order=lowpass_order,
+        )
+        imu_l = _lowpass_trial_channels(
+            imu_l,
+            time,
             apply_lowpass_filter=apply_lowpass_filter,
             lowpass_cutoff_hz=lowpass_cutoff_hz,
             lowpass_order=lowpass_order,
@@ -315,7 +340,6 @@ class ImuSagittalH5Dataset(Dataset):
         apply_lowpass_filter: bool = True,
         lowpass_cutoff_hz: float = 4.0,
         lowpass_order: int = 4,
-        median_kernel_samples: int = 0,
         preload_trials: bool = False,
         max_trials: Optional[int] = None,
         target_sample_rate_hz: Optional[float] = None,
@@ -347,7 +371,6 @@ class ImuSagittalH5Dataset(Dataset):
         self.apply_lowpass_filter = apply_lowpass_filter
         self.lowpass_cutoff_hz = lowpass_cutoff_hz
         self.lowpass_order = lowpass_order
-        self.median_kernel_samples = median_kernel_samples
         self.return_full_sagittal_angles = bool(return_full_sagittal_angles)
         self.target_sample_rate_hz: Optional[float] = (
             None if target_sample_rate_hz is None else float(target_sample_rate_hz)
@@ -400,7 +423,6 @@ class ImuSagittalH5Dataset(Dataset):
                 apply_lowpass_filter=self.apply_lowpass_filter,
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
-                median_kernel_samples=self.median_kernel_samples,
                 target_sample_rate_hz=self.target_sample_rate_hz,
             )
             if trial is None:
@@ -514,7 +536,6 @@ class ImuSagittalH5Dataset(Dataset):
             apply_lowpass_filter=self.apply_lowpass_filter,
             lowpass_cutoff_hz=self.lowpass_cutoff_hz,
             lowpass_order=self.lowpass_order,
-            median_kernel_samples=self.median_kernel_samples,
             target_sample_rate_hz=self.target_sample_rate_hz,
         )
         if trial is None:

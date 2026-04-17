@@ -3,7 +3,7 @@
 Run IMU → sagittal angle/moment inference on one H5 trial and plot GT vs prediction (Plotly HTML).
 
 Uses the same trial pipeline as ``ImuSagittalH5Dataset`` / ``_load_trial_imu_sagittal_paired`` (IK time base,
-IMU interpolated, optional median + LPF, unilateral left-hip flip on kinematics/kinetics).
+IMU interpolated, optional zero-phase LPF, unilateral left-hip flip on kinematics/kinetics).
 
 The TCN uses **causal** convolutions: default ``--inference-mode causal`` matches ``plot_memo_trial_inference.py``.
 """
@@ -120,7 +120,6 @@ def run_single_trial_inference(
     apply_lowpass_filter: bool = True,
     lowpass_cutoff_hz: float = 4.0,
     lowpass_order: int = 4,
-    median_kernel_samples: int = 0,
     target_sample_rate_hz: Optional[float] = None,
 ) -> None:
     """Load one trial with IMU+IK+ID, run inference per leg, write Plotly HTML."""
@@ -143,7 +142,6 @@ def run_single_trial_inference(
         apply_lowpass_filter=apply_lowpass_filter,
         lowpass_cutoff_hz=lowpass_cutoff_hz,
         lowpass_order=lowpass_order,
-        median_kernel_samples=median_kernel_samples,
         target_sample_rate_hz=target_sample_rate_hz,
     )
     if trial_data is None:
@@ -299,7 +297,6 @@ def run_single_trial_inference(
                 "apply_lowpass_filter": bool(apply_lowpass_filter),
                 "lowpass_cutoff_hz": float(lowpass_cutoff_hz),
                 "lowpass_order": int(lowpass_order),
-                "median_kernel_samples": int(median_kernel_samples),
                 "inference_mode": inference_mode,
             },
             f,
@@ -349,12 +346,6 @@ def main() -> None:
     )
     parser.add_argument("--lowpass-cutoff-hz", type=float, default=4.0)
     parser.add_argument("--lowpass-order", type=int, default=4)
-    parser.add_argument(
-        "--median-kernel-samples",
-        type=int,
-        default=0,
-        help="Temporal median kernel (>=3); 0 disables.",
-    )
     parser.add_argument(
         "--target-sample-rate-hz",
         type=float,
@@ -420,7 +411,6 @@ def main() -> None:
         apply_lowpass_filter=not bool(args.no_lowpass),
         lowpass_cutoff_hz=float(args.lowpass_cutoff_hz),
         lowpass_order=int(args.lowpass_order),
-        median_kernel_samples=int(args.median_kernel_samples),
         target_sample_rate_hz=tgt_sr,
     )
 

@@ -18,8 +18,7 @@ Windowing:
   - Uniform sliding-window step ``stride`` (default 1 sample between starts; no per-task variation).
 
 Denoising (optional, for noisy IK / ID):
-  - Temporal median filter (impulse / double-peak spikes)
-  - Zero-phase Butterworth low-pass (default 4 Hz; SciPy ``sosfiltfilt``, forward-backward)
+  - Zero-phase Butterworth low-pass only (default 4 Hz; SciPy ``sosfiltfilt``, forward-backward)
   Velocities are always computed from the final filtered positions.
 """
 
@@ -51,7 +50,7 @@ except ImportError:
     HAS_SCIPY = False
 
 try:
-    from scipy.signal import butter, medfilt, sosfiltfilt
+    from scipy.signal import butter, sosfiltfilt
 
     HAS_SCIPY_SIGNAL = True
 except ImportError:
@@ -725,48 +724,11 @@ def _lowpass_zero_phase(
         return data
 
 
-def _median_filter_timeseries(data: np.ndarray, kernel_size: int) -> np.ndarray:
-    """
-    Short temporal median filter per channel (removes impulse / spike noise).
-    ``kernel_size`` is coerced to an odd integer in [3, T].
-    NaNs are filled with the column median for filtering only, then restored.
-    """
-    if not HAS_SCIPY_SIGNAL or kernel_size < 3:
-        return data
-    if data.ndim != 2 or data.shape[0] < 3:
-        return data
-    T = data.shape[0]
-    ks = int(kernel_size)
-    if ks % 2 == 0:
-        ks += 1
-    ks = max(3, min(ks, T if T % 2 == 1 else T - 1))
-    if ks < 3:
-        return data
-
-    x = data.astype(np.float64)
-    out = np.empty_like(x)
-    for j in range(x.shape[1]):
-        col = x[:, j].copy()
-        if not np.any(np.isfinite(col)):
-            out[:, j] = col
-            continue
-        nan_m = ~np.isfinite(col)
-        fill = float(np.nanmedian(col))
-        col[nan_m] = fill
-        try:
-            out[:, j] = medfilt(col, kernel_size=ks)
-        except Exception:
-            out[:, j] = x[:, j]
-        out[nan_m, j] = np.nan
-    return out
-
-
 def _denoise_pos_and_moments(
     pos: np.ndarray,
     moments: np.ndarray,
     time: np.ndarray,
     *,
-    median_kernel_samples: int,
     apply_lowpass_filter: bool,
     lowpass_cutoff_hz: float,
     lowpass_order: int,
@@ -774,21 +736,10 @@ def _denoise_pos_and_moments(
     """
     Denoise pipeline for IK positions (rad) and ID moments.
 
-    Order: optional median → optional zero-phase Butterworth low-pass
-    (``_lowpass_zero_phase`` / ``scipy.signal.sosfiltfilt``).
+    Optional **zero-phase** Butterworth low-pass only (``_lowpass_zero_phase`` / ``scipy.signal.sosfiltfilt``).
     """
     pos = pos.astype(np.float64)
     moments = moments.astype(np.float64)
-
-    def _mom_median(m: np.ndarray) -> np.ndarray:
-        finite = np.isfinite(m)
-        m_fill = np.where(finite, m, 0.0)
-        m_f = _median_filter_timeseries(m_fill, median_kernel_samples)
-        return np.where(finite, m_f, np.nan)
-
-    if median_kernel_samples >= 3:
-        pos = _median_filter_timeseries(pos, median_kernel_samples)
-        moments = _mom_median(moments)
 
     if apply_lowpass_filter:
         pos = _lowpass_zero_phase(pos, time, cutoff_hz=lowpass_cutoff_hz, order=lowpass_order)
@@ -800,6 +751,36 @@ def _denoise_pos_and_moments(
         moments = np.where(finite_mom, moments_filt, np.nan)
 
     return pos, moments
+
+
+def _lowpass_trial_channels(
+    x: np.ndarray,
+    time: np.ndarray,
+    *,
+    apply_lowpass_filter: bool,
+    lowpass_cutoff_hz: float,
+    lowpass_order: int,
+) -> np.ndarray:
+    """
+    Zero-phase Butterworth along time for each column (e.g. IMU features).
+
+    Non-finite samples are masked out during filtering (filled with 0, then restored to NaN),
+    matching the moment-channel path in ``_denoise_pos_and_moments``.
+    """
+    if not apply_lowpass_filter:
+        return x
+    arr = np.asarray(x, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[0] != len(time):
+        return x
+    finite = np.isfinite(arr)
+    fill = np.where(finite, arr, 0.0)
+    filt = _lowpass_zero_phase(
+        fill, time, cutoff_hz=float(lowpass_cutoff_hz), order=int(lowpass_order)
+    )
+    out = np.where(finite, filt, np.nan)
+    if np.issubdtype(x.dtype, np.floating):
+        return out.astype(x.dtype, copy=False)
+    return out.astype(np.float32)
 
 
 def _read_h5_opensim_table(dset) -> Tuple[List[str], np.ndarray]:
@@ -944,10 +925,9 @@ def load_trial_from_processed(
     trial_dir: Path,
     root_dir: str,
     meta_map: Dict[str, Dict],
-    apply_lowpass_filter: bool = False,
+    apply_lowpass_filter: bool = True,
     lowpass_cutoff_hz: float = 4.0,
     lowpass_order: int = 4,
-    median_kernel_samples: int = 0,
     target_sample_rate_hz: Optional[float] = None,
 ) -> Optional[Dict]:
     """
@@ -1013,12 +993,11 @@ def load_trial_from_processed(
             time, pos, moments, float(target_sample_rate_hz)
         )
 
-    if median_kernel_samples >= 3 or apply_lowpass_filter:
+    if apply_lowpass_filter:
         pos, moments = _denoise_pos_and_moments(
             pos,
             moments,
             time,
-            median_kernel_samples=median_kernel_samples,
             apply_lowpass_filter=apply_lowpass_filter,
             lowpass_cutoff_hz=lowpass_cutoff_hz,
             lowpass_order=lowpass_order,
@@ -1114,7 +1093,6 @@ class KineticsTCNDataset(Dataset):
         apply_lowpass_filter: bool = True,
         lowpass_cutoff_hz: float = 4.0,
         lowpass_order: int = 4,
-        median_kernel_samples: int = 0,
         target_sample_rate_hz: Optional[float] = None,
     ):
         if data_dir is None:
@@ -1129,7 +1107,6 @@ class KineticsTCNDataset(Dataset):
         self.apply_lowpass_filter = bool(apply_lowpass_filter)
         self.lowpass_cutoff_hz = float(lowpass_cutoff_hz)
         self.lowpass_order = int(lowpass_order)
-        self.median_kernel_samples = int(median_kernel_samples)
         self.target_sample_rate_hz: Optional[float] = (
             None if target_sample_rate_hz is None else float(target_sample_rate_hz)
         )
@@ -1211,10 +1188,10 @@ class KineticsTCNDataset(Dataset):
             print("[KineticsTCNDataset] h5py not available; falling back to text .mot/.sto.")
         elif use_h5 and not Path(requested_h5_dir).exists():
             print(f"[KineticsTCNDataset] H5 dir not found ({requested_h5_dir}); falling back to text .mot/.sto.")
-        if (self.apply_lowpass_filter or self.median_kernel_samples >= 3) and not HAS_SCIPY_SIGNAL:
+        if self.apply_lowpass_filter and not HAS_SCIPY_SIGNAL:
             print(
                 "[KineticsTCNDataset] scipy.signal unavailable; "
-                "low-pass / median denoising disabled."
+                "zero-phase low-pass denoising disabled."
             )
 
         if self.use_h5:
@@ -1330,7 +1307,6 @@ class KineticsTCNDataset(Dataset):
                     apply_lowpass_filter=self.apply_lowpass_filter,
                     lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                     lowpass_order=self.lowpass_order,
-                    median_kernel_samples=self.median_kernel_samples,
                     target_sample_rate_hz=self.target_sample_rate_hz,
                 )
                 cond_name = ref.parent.name
@@ -1495,12 +1471,11 @@ class KineticsTCNDataset(Dataset):
                 time, pos, moments, float(self.target_sample_rate_hz)
             )
 
-        if self.median_kernel_samples >= 3 or self.apply_lowpass_filter:
+        if self.apply_lowpass_filter:
             pos, moments = _denoise_pos_and_moments(
                 pos,
                 moments,
                 time,
-                median_kernel_samples=self.median_kernel_samples,
                 apply_lowpass_filter=self.apply_lowpass_filter,
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
@@ -1540,7 +1515,6 @@ class KineticsTCNDataset(Dataset):
                 apply_lowpass_filter=self.apply_lowpass_filter,
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
-                median_kernel_samples=self.median_kernel_samples,
                 target_sample_rate_hz=self.target_sample_rate_hz,
             )
             label = td
