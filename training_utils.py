@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -20,6 +20,66 @@ def set_global_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+class MomentLoss(nn.Module):
+    """
+    Composite loss for joint moment prediction with optional Huber robustness and
+    per-DOF channel weighting.
+
+    Args:
+        loss_type: ``"mse"`` (standard L2) or ``"huber"`` (smooth-L1 / Huber). Huber
+            is less sensitive to large residuals at transition events (stair/ramp).
+        huber_delta: Threshold below which Huber behaves as L2, above as L1
+            (in N·m/kg). Typical gait RMSE is 0.1–0.2, so ``delta=0.5`` means the
+            majority of residuals use the L2 branch.
+        dof_weights: 1-D tensor of length ``n_output_channels``. Each channel's
+            per-element loss is multiplied by the corresponding weight before
+            averaging. If ``None``, all channels have weight 1.0 (identical to
+            unweighted MSE/Huber).
+    """
+
+    def __init__(
+        self,
+        loss_type: str = "mse",
+        huber_delta: float = 0.5,
+        dof_weights: Optional[torch.Tensor] = None,
+    ) -> None:
+        super().__init__()
+        if loss_type not in ("mse", "huber"):
+            raise ValueError(f"loss_type must be 'mse' or 'huber', got {loss_type!r}")
+        self.loss_type = loss_type
+        self.huber_delta = huber_delta
+        if dof_weights is not None:
+            self.register_buffer("dof_weights", dof_weights.float())
+        else:
+            self.register_buffer("dof_weights", None)
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            pred, target: ``(B, C, W)`` – batch × output DOFs × window length.
+        Returns:
+            Scalar loss.
+        """
+        if self.loss_type == "huber":
+            diff = pred - target
+            abs_diff = diff.abs()
+            delta = self.huber_delta
+            elem = torch.where(
+                abs_diff <= delta,
+                0.5 * diff ** 2,
+                delta * (abs_diff - 0.5 * delta),
+            )
+        else:
+            elem = (pred - target) ** 2
+
+        if self.dof_weights is not None:
+            # Mean over B and W per DOF, then weighted average over DOFs.
+            per_dof = elem.mean(dim=(0, 2))          # (C,)
+            w = self.dof_weights.to(pred.device)
+            return (w * per_dof).sum() / w.sum()
+        return elem.mean()
+
+
 def train_one_epoch(
     model: torch.nn.Module,
     loader: Any,
@@ -31,28 +91,71 @@ def train_one_epoch(
     input_noise_std: float = 0.0,
     angle_jitter_std: float = 0.0,
     n_position_channels: Optional[int] = None,
+    *,
+    correlated_vel_noise: bool = False,
+    sample_rate_hz: float = 200.0,
+    smoothness_lambda: float = 0.0,
 ) -> float:
+    """
+    Train for one epoch.
+
+    New keyword-only arguments (all backward-compatible with defaults):
+
+    correlated_vel_noise:
+        When ``True`` and ``angle_jitter_std > 0``, the velocity channels are
+        *recomputed* from the noisy position channels via finite difference instead
+        of leaving the pre-loaded (optionally LPF'd) velocities unchanged.  This
+        reproduces the cascade noise model where the IMU estimator delivers noisy
+        angles and the downstream module numerically differentiates them — meaning
+        velocity noise is correlated with and amplified from angle noise.
+    sample_rate_hz:
+        Sample rate used to scale the finite-difference velocity (rad/s).
+        Must match the dataset's effective sample rate (after optional resampling).
+    smoothness_lambda:
+        If > 0, a temporal smoothness penalty ``λ · mean(||Δŷ||²)`` is added to
+        the primary loss.  Joint moments are inherently smooth (≤4 Hz content);
+        this term discourages high-frequency prediction jitter, especially
+        important when the model input carries noise from the cascade.
+    """
     model.train()
     running_loss = 0.0
     n_batches = 0
 
     for x, y in loader:
         x, y = x.to(device), y.to(device)
+
+        # ---- Input augmentation ----
         if angle_jitter_std > 0:
-            n_pos = n_position_channels
-            if n_pos is None:
-                n_pos = x.shape[1] // 2
+            n_pos = n_position_channels if n_position_channels is not None else x.shape[1] // 2
             if n_pos > 0:
-                x[:, :n_pos, :] += (
-                    torch.randn(
-                        x.shape[0], n_pos, x.shape[2], device=x.device, dtype=x.dtype
-                    )
-                    * angle_jitter_std
-                )
+                noise = torch.randn(
+                    x.shape[0], n_pos, x.shape[2], device=x.device, dtype=x.dtype
+                ) * angle_jitter_std
+                noisy_pos = x[:, :n_pos, :] + noise
+                if correlated_vel_noise:
+                    # Recompute velocity from noisy positions (finite difference, no LPF).
+                    # Mimics cascade: IMU angle → finite_diff → velocity, so noise in
+                    # velocity is directly derived from angle perturbation.
+                    diff = noisy_pos[:, :, 1:] - noisy_pos[:, :, :-1]   # (B, n_pos, W-1)
+                    # Replicate first frame so output length stays W.
+                    noisy_vel = torch.cat([diff[:, :, :1], diff], dim=2) * sample_rate_hz
+                    # Rebuild input: replace first 2*n_pos channels; keep any extra.
+                    rest = x[:, 2 * n_pos:, :]
+                    x = torch.cat([noisy_pos, noisy_vel, rest], dim=1) if rest.shape[1] > 0 else torch.cat([noisy_pos, noisy_vel], dim=1)
+                else:
+                    x = x.clone()
+                    x[:, :n_pos, :] = noisy_pos
+
         if input_noise_std > 0:
             x = x + torch.randn_like(x) * input_noise_std
+
+        # ---- Forward + loss ----
         pred = model(x)
         loss = criterion(pred, y)
+
+        if smoothness_lambda > 0.0:
+            delta_pred = pred[:, :, 1:] - pred[:, :, :-1]   # (B, C, W-1)
+            loss = loss + smoothness_lambda * (delta_pred ** 2).mean()
 
         optimizer.zero_grad()
         loss.backward()

@@ -302,7 +302,9 @@ def is_walking_condition(condition_dir: Path) -> bool:
         or ("treadmill" in name)
     )
     # Common non-walking conditions.
-    exclude = ("static" in name)
+    exclude = (
+        ("static" in name)
+    )
     return bool(include and not exclude)
 
 
@@ -887,6 +889,39 @@ def resample_trial_to_uniform_hz(
     )
 
 
+def decimate_trial_aligned(
+    time: np.ndarray,
+    pos: np.ndarray,
+    moments: np.ndarray,
+    step: int,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Keep every ``step``-th sample along time (indices 0, step, 2*step, ...).
+
+    Use ``step=2`` on ~200 Hz native data to obtain ~100 Hz without interpolation
+    (avoids regridding artifacts from ``resample_trial_to_uniform_hz``).
+    """
+    if step < 1:
+        raise ValueError("decimate step must be >= 1")
+    if step == 1:
+        return time, pos, moments
+    t = np.asarray(time, dtype=np.float64).ravel()
+    p = np.asarray(pos, dtype=np.float64)
+    m = np.asarray(moments, dtype=np.float64)
+    if t.size < 2:
+        return time, pos, moments
+    if p.shape[0] != t.size or m.shape[0] != t.size:
+        raise ValueError(
+            f"time length {t.size} must match pos rows {p.shape[0]} and moments rows {m.shape[0]}."
+        )
+    idx = np.arange(0, t.size, int(step), dtype=np.int64)
+    return (
+        t[idx].astype(np.float32),
+        p[idx].astype(np.float32),
+        m[idx].astype(np.float32),
+    )
+
+
 def _coerce_weight_kg(weight_kg_value) -> float:
     """
     Convert metadata weight/mass value into a single float.
@@ -929,6 +964,10 @@ def load_trial_from_processed(
     lowpass_cutoff_hz: float = 4.0,
     lowpass_order: int = 4,
     target_sample_rate_hz: Optional[float] = None,
+    rollout_decimate_step: int = 1,
+    apply_velocity_lowpass_filter: bool = False,
+    velocity_lowpass_cutoff_hz: Optional[float] = None,
+    velocity_lowpass_order: Optional[int] = None,
 ) -> Optional[Dict]:
     """
     Load one processed trial directory into arrays:
@@ -988,7 +1027,11 @@ def load_trial_from_processed(
             # Windowing will drop windows where selected output channels are non-finite.
             pass
 
-    if target_sample_rate_hz is not None and target_sample_rate_hz > 0:
+    if rollout_decimate_step > 1:
+        time, pos, moments = decimate_trial_aligned(
+            time, pos, moments, int(rollout_decimate_step)
+        )
+    elif target_sample_rate_hz is not None and target_sample_rate_hz > 0:
         time, pos, moments = resample_trial_to_uniform_hz(
             time, pos, moments, float(target_sample_rate_hz)
         )
@@ -1004,6 +1047,18 @@ def load_trial_from_processed(
         )
 
     vel = _compute_velocity(pos, time)
+    if apply_velocity_lowpass_filter:
+        vel_cutoff = (
+            float(velocity_lowpass_cutoff_hz)
+            if velocity_lowpass_cutoff_hz is not None
+            else float(lowpass_cutoff_hz)
+        )
+        vel_order = (
+            int(velocity_lowpass_order)
+            if velocity_lowpass_order is not None
+            else int(lowpass_order)
+        )
+        vel = _lowpass_zero_phase(vel, time, cutoff_hz=vel_cutoff, order=vel_order)
 
     trial_name = f"{trial_dir.parent.name}/{trial_dir.name}"
     return {
@@ -1033,6 +1088,11 @@ class KineticsTCNDataset(Dataset):
 
     ``target_sample_rate_hz``: if set (e.g. 100), resample IK/ID to a uniform grid at that rate before
     denoising and velocity estimation. Default ``None`` keeps the native timeline (~200 Hz for typical H5).
+    Do not combine with ``rollout_decimate_step > 1`` (mutually exclusive).
+
+    ``rollout_decimate_step``: if > 1 (typically ``2``), keep every ``step``-th sample after IK/ID alignment
+    (no interpolation). ``step=2`` approximates 200 Hz → 100 Hz. Applied before denoising, same stage as
+    resampling.
 
     Optional Butterworth low-pass on IK positions and ID moments is always **zero-phase**
     (``_lowpass_zero_phase`` / ``sosfiltfilt``), same as ``_denoise_pos_and_moments``.
@@ -1069,6 +1129,98 @@ class KineticsTCNDataset(Dataset):
             and np.all(np.isfinite(mom_w))
         )
 
+    @staticmethod
+    def _row_finite_mask_for_training(
+        trial: Dict[str, Any],
+        input_indices: Optional[List[int]],
+        moment_indices: Optional[List[int]],
+    ) -> np.ndarray:
+        """
+        Per-frame finite mask equivalent to ``_window_ok_for_training`` checks.
+
+        A frame is valid iff all selected IK positions, velocities, and moments are finite.
+        """
+        pos = trial["positions"]
+        vel = trial["velocities"]
+        mom = trial["moments"]
+        if input_indices is not None:
+            pos = pos[:, input_indices]
+            vel = vel[:, input_indices]
+        if moment_indices is not None:
+            mom = mom[:, moment_indices]
+        return (
+            np.isfinite(pos).all(axis=1)
+            & np.isfinite(vel).all(axis=1)
+            & np.isfinite(mom).all(axis=1)
+        )
+
+    @staticmethod
+    def _window_valid_flags_from_row_mask(
+        row_ok: np.ndarray,
+        window_size: int,
+        starts: np.ndarray,
+    ) -> np.ndarray:
+        """
+        For each ``start`` in ``starts``, return whether ``row_ok[start:start+window_size]`` is all True.
+        """
+        if starts.size == 0:
+            return np.zeros((0,), dtype=bool)
+        bad = (~row_ok).astype(np.int64, copy=False)
+        csum = np.empty((bad.shape[0] + 1,), dtype=np.int64)
+        csum[0] = 0
+        np.cumsum(bad, out=csum[1:])
+        bad_in_window = csum[starts + int(window_size)] - csum[starts]
+        return bad_in_window == 0
+
+    def _append_windows_for_trial(
+        self,
+        trial: Dict[str, Any],
+        t_idx: int,
+        stride_eff: int,
+    ) -> None:
+        """
+        Append valid windows for one trial into ``self.windows``.
+        Preserves legacy append order exactly: for paired windows, r then l per start.
+        """
+        n = trial["positions"].shape[0]
+        if n < self.window_size:
+            return
+        starts = np.arange(0, n - self.window_size + 1, int(stride_eff), dtype=np.int64)
+        if starts.size == 0:
+            return
+
+        if self._unilateral_paired:
+            assert self._pair_in_r is not None and self._pair_mom_r is not None
+            assert self._pair_in_l is not None and self._pair_mom_l is not None
+            r_row_ok = self._row_finite_mask_for_training(
+                trial, self._pair_in_r, self._pair_mom_r
+            )
+            l_row_ok = self._row_finite_mask_for_training(
+                trial, self._pair_in_l, self._pair_mom_l
+            )
+            r_valid = self._window_valid_flags_from_row_mask(
+                r_row_ok, self.window_size, starts
+            )
+            l_valid = self._window_valid_flags_from_row_mask(
+                l_row_ok, self.window_size, starts
+            )
+            for i, st in enumerate(starts.tolist()):
+                if bool(r_valid[i]):
+                    self.windows.append((t_idx, int(st), "r"))
+                if bool(l_valid[i]):
+                    self.windows.append((t_idx, int(st), "l"))
+            return
+
+        row_ok = self._row_finite_mask_for_training(
+            trial, self.input_indices, self.moment_indices
+        )
+        valid = self._window_valid_flags_from_row_mask(
+            row_ok, self.window_size, starts
+        )
+        for i, st in enumerate(starts.tolist()):
+            if bool(valid[i]):
+                self.windows.append((t_idx, int(st), None))
+
     def __init__(
         self,
         data_dir: Optional[str] = None,
@@ -1094,6 +1246,10 @@ class KineticsTCNDataset(Dataset):
         lowpass_cutoff_hz: float = 4.0,
         lowpass_order: int = 4,
         target_sample_rate_hz: Optional[float] = None,
+        rollout_decimate_step: int = 1,
+        apply_velocity_lowpass_filter: bool = False,
+        velocity_lowpass_cutoff_hz: Optional[float] = None,
+        velocity_lowpass_order: Optional[int] = None,
     ):
         if data_dir is None:
             raise ValueError("data_dir must point to processed Camargo root")
@@ -1107,9 +1263,22 @@ class KineticsTCNDataset(Dataset):
         self.apply_lowpass_filter = bool(apply_lowpass_filter)
         self.lowpass_cutoff_hz = float(lowpass_cutoff_hz)
         self.lowpass_order = int(lowpass_order)
+        self.apply_velocity_lowpass_filter = bool(apply_velocity_lowpass_filter)
+        self.velocity_lowpass_cutoff_hz = (
+            None if velocity_lowpass_cutoff_hz is None else float(velocity_lowpass_cutoff_hz)
+        )
+        self.velocity_lowpass_order = (
+            None if velocity_lowpass_order is None else int(velocity_lowpass_order)
+        )
         self.target_sample_rate_hz: Optional[float] = (
             None if target_sample_rate_hz is None else float(target_sample_rate_hz)
         )
+        self.rollout_decimate_step = max(1, int(rollout_decimate_step))
+        if self.rollout_decimate_step > 1 and self.target_sample_rate_hz is not None:
+            raise ValueError(
+                "Use either rollout_decimate_step>1 (stride subsample) or target_sample_rate_hz "
+                "(interpolation resample), not both."
+            )
 
         self.laterality = normalize_laterality(laterality)
         self._use_unilateral_flip = self.laterality == "unilateral"
@@ -1308,6 +1477,7 @@ class KineticsTCNDataset(Dataset):
                     lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                     lowpass_order=self.lowpass_order,
                     target_sample_rate_hz=self.target_sample_rate_hz,
+                    rollout_decimate_step=self.rollout_decimate_step,
                 )
                 cond_name = ref.parent.name
             if trial is None:
@@ -1339,28 +1509,7 @@ class KineticsTCNDataset(Dataset):
                     sumsq_vel += np.square(vel).sum(axis=0)
 
             # Create windows and validate outputs for those windows.
-            n = trial["positions"].shape[0]
-            for start in range(0, n - self.window_size + 1, stride_eff):
-                end = start + self.window_size
-                if self._unilateral_paired:
-                    assert self._pair_in_r is not None and self._pair_mom_r is not None
-                    assert self._pair_in_l is not None and self._pair_mom_l is not None
-                    r_ok = self._window_ok_for_training(
-                        trial, start, end, self._pair_in_r, self._pair_mom_r
-                    )
-                    l_ok = self._window_ok_for_training(
-                        trial, start, end, self._pair_in_l, self._pair_mom_l
-                    )
-                    if r_ok:
-                        self.windows.append((t_idx, start, "r"))
-                    if l_ok:
-                        self.windows.append((t_idx, start, "l"))
-                    continue
-                if not self._window_ok_for_training(
-                    trial, start, end, self.input_indices, self.moment_indices
-                ):
-                    continue
-                self.windows.append((t_idx, start, None))
+            self._append_windows_for_trial(trial, t_idx, stride_eff)
 
             if self.preload_trials:
                 self.trials.append(trial)
@@ -1466,7 +1615,11 @@ class KineticsTCNDataset(Dataset):
                 # Windowing will drop windows where selected output channels are non-finite.
                 pass
 
-        if self.target_sample_rate_hz is not None and self.target_sample_rate_hz > 0:
+        if self.rollout_decimate_step > 1:
+            time, pos, moments = decimate_trial_aligned(
+                time, pos, moments, int(self.rollout_decimate_step)
+            )
+        elif self.target_sample_rate_hz is not None and self.target_sample_rate_hz > 0:
             time, pos, moments = resample_trial_to_uniform_hz(
                 time, pos, moments, float(self.target_sample_rate_hz)
             )
@@ -1482,6 +1635,18 @@ class KineticsTCNDataset(Dataset):
             )
 
         vel = _compute_velocity(pos, time)
+        if self.apply_velocity_lowpass_filter:
+            vel_cutoff = (
+                float(self.velocity_lowpass_cutoff_hz)
+                if self.velocity_lowpass_cutoff_hz is not None
+                else float(self.lowpass_cutoff_hz)
+            )
+            vel_order = (
+                int(self.velocity_lowpass_order)
+                if self.velocity_lowpass_order is not None
+                else int(self.lowpass_order)
+            )
+            vel = _lowpass_zero_phase(vel, time, cutoff_hz=vel_cutoff, order=vel_order)
 
         trial_name_full = f"{subj_id}/{cond_name}/{trial_name}"
         return {
@@ -1516,6 +1681,10 @@ class KineticsTCNDataset(Dataset):
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
                 target_sample_rate_hz=self.target_sample_rate_hz,
+                rollout_decimate_step=self.rollout_decimate_step,
+                apply_velocity_lowpass_filter=self.apply_velocity_lowpass_filter,
+                velocity_lowpass_cutoff_hz=self.velocity_lowpass_cutoff_hz,
+                velocity_lowpass_order=self.velocity_lowpass_order,
             )
             label = td
         if trial is None:
@@ -1551,28 +1720,7 @@ class KineticsTCNDataset(Dataset):
         self.windows: List[Tuple[int, int, Optional[str]]] = []
         stride_eff = self._window_stride()
         for t_idx, trial in enumerate(self.trials):
-            n = trial["positions"].shape[0]
-            for start in range(0, n - self.window_size + 1, stride_eff):
-                end = start + self.window_size
-                if self._unilateral_paired:
-                    assert self._pair_in_r is not None and self._pair_mom_r is not None
-                    assert self._pair_in_l is not None and self._pair_mom_l is not None
-                    r_ok = self._window_ok_for_training(
-                        trial, start, end, self._pair_in_r, self._pair_mom_r
-                    )
-                    l_ok = self._window_ok_for_training(
-                        trial, start, end, self._pair_in_l, self._pair_mom_l
-                    )
-                    if r_ok:
-                        self.windows.append((t_idx, start, "r"))
-                    if l_ok:
-                        self.windows.append((t_idx, start, "l"))
-                    continue
-                if not self._window_ok_for_training(
-                    trial, start, end, self.input_indices, self.moment_indices
-                ):
-                    continue
-                self.windows.append((t_idx, start, None))
+            self._append_windows_for_trial(trial, t_idx, stride_eff)
 
     def __len__(self):
         return len(self.windows)

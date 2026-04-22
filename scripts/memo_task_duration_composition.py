@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-_REPO = Path(__file__).resolve().parent
+_REPO = Path(__file__).resolve().parent.parent
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 

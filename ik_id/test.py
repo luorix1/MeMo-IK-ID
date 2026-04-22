@@ -75,9 +75,34 @@ def resolve_unilateral_paired_for_eval(
     return int(n_in_model) == len(input_indices)
 
 
+def resolve_dataset_stride(
+    *,
+    stride_from_ckpt: Optional[int],
+    run_cfg: Optional[Dict[str, Any]],
+    window_size: int,
+    override: Optional[int],
+) -> int:
+    """
+    Resolve dataset stride for eval scripts that mirror training settings.
+
+    Priority:
+      1) explicit CLI override
+      2) stride stored in checkpoint
+      3) stride in run config
+      4) default non-overlap stride = window_size
+    """
+    if override is not None:
+        return max(1, int(override))
+    if stride_from_ckpt is not None:
+        return max(1, int(stride_from_ckpt))
+    if run_cfg is not None and run_cfg.get("stride") is not None:
+        return max(1, int(run_cfg["stride"]))
+    return max(1, int(window_size))
+
+
 def load_model(
     ckpt_path: str, device: str = "cpu",
-) -> Tuple[Any, Any, Any, int, Any, Any, str, str, Optional[int], str, Optional[bool]]:
+) -> Tuple[Any, Any, Any, int, Any, Any, str, str, str, Optional[bool]]:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     cfg = ckpt["model_config"]
     model = TCN(
@@ -99,9 +124,6 @@ def load_model(
     moment_indices = ckpt.get("moment_indices", None)
     input_mode     = ckpt.get("input_mode", "full")
     output_mode    = ckpt.get("output_mode", "all")
-    train_stride   = ckpt.get("stride", None)
-    if train_stride is not None:
-        train_stride = int(train_stride)
     laterality = str(ckpt.get("laterality", "bilateral"))
     uni_paired = ckpt.get("unilateral_paired_side_windows", None)
     if uni_paired is not None:
@@ -115,27 +137,9 @@ def load_model(
         moment_indices,
         input_mode,
         output_mode,
-        train_stride,
         laterality,
         uni_paired,
     )
-
-
-def resolve_dataset_stride(
-    *,
-    stride_from_ckpt: Optional[int],
-    run_cfg: Optional[Dict[str, Any]],
-    window_size: int,
-    override: Optional[int],
-) -> int:
-    """Training --stride: checkpoint, then config.json, else window_size (legacy eval fallback)."""
-    if override is not None:
-        return int(override)
-    if stride_from_ckpt is not None:
-        return int(stride_from_ckpt)
-    if run_cfg is not None and run_cfg.get("stride") is not None:
-        return int(run_cfg["stride"])
-    return int(window_size)
 
 
 @torch.no_grad()
@@ -581,7 +585,7 @@ def main() -> None:
     parser.add_argument("--test-dir", type=str, required=True,
                         help="Directory with test b3d files")
     parser.add_argument("--output-dir", type=str, default="results/tcn_eval")
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument(
         "--num-workers",
         type=int,
@@ -615,16 +619,6 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for reproducible eval/plots")
     parser.add_argument(
-        "--stride",
-        type=int,
-        default=None,
-        help=(
-            "Sliding-window stride for evaluation windows. "
-            "Default: same as training (--stride in config.json or checkpoint), "
-            "else window size (legacy)."
-        ),
-    )
-    parser.add_argument(
         "--target-sample-rate-hz",
         type=float,
         default=None,
@@ -651,7 +645,6 @@ def main() -> None:
         moment_indices,
         input_mode,
         output_mode,
-        stride_from_ckpt,
         laterality_ckpt,
         unilateral_paired_ckpt,
     ) = load_model(args.checkpoint, args.device)
@@ -661,13 +654,8 @@ def main() -> None:
     print(f"  Window size: {window_size}")
 
     run_cfg = load_run_config(args.checkpoint)
-    eval_stride = resolve_dataset_stride(
-        stride_from_ckpt=stride_from_ckpt,
-        run_cfg=run_cfg,
-        window_size=window_size,
-        override=args.stride,
-    )
-    print(f"  Dataset stride: {eval_stride}")
+    eval_stride = 1
+    print("  Dataset stride: 1 (dense evaluation)")
     if run_cfg is not None and "laterality" in run_cfg:
         print(f"  Run laterality: {run_cfg.get('laterality')}")
 
@@ -851,6 +839,28 @@ def main() -> None:
                 f"({test_ds_kwargs['lowpass_cutoff_hz']} Hz, order {test_ds_kwargs['lowpass_order']}) "
                 f"(from config.json)"
             )
+
+    # Match training velocity preprocessing when available.
+    # Backward compatibility: older runs had no velocity LPF stage.
+    vel_lpf_apply = False
+    vel_lpf_cut = None
+    vel_lpf_ord = None
+    if run_cfg is not None:
+        if run_cfg.get("velocity_lowpass_filter") is not None:
+            vel_lpf_apply = bool(run_cfg.get("velocity_lowpass_filter"))
+        if run_cfg.get("velocity_lowpass_cutoff_hz") is not None:
+            vel_lpf_cut = float(run_cfg.get("velocity_lowpass_cutoff_hz"))
+        if run_cfg.get("velocity_lowpass_order") is not None:
+            vel_lpf_ord = int(run_cfg.get("velocity_lowpass_order"))
+    test_ds_kwargs["apply_velocity_lowpass_filter"] = bool(vel_lpf_apply)
+    test_ds_kwargs["velocity_lowpass_cutoff_hz"] = vel_lpf_cut
+    test_ds_kwargs["velocity_lowpass_order"] = vel_lpf_ord
+    if vel_lpf_apply:
+        _vcut_show = vel_lpf_cut if vel_lpf_cut is not None else test_ds_kwargs.get("lowpass_cutoff_hz", 4.0)
+        _vord_show = vel_lpf_ord if vel_lpf_ord is not None else test_ds_kwargs.get("lowpass_order", 4)
+        print(f"  Velocity LPF after differentiation: on ({_vcut_show} Hz, order {_vord_show})")
+    else:
+        print("  Velocity LPF after differentiation: off")
 
     eval_target_sr: Optional[float] = None
     if run_cfg is not None and run_cfg.get("target_sample_rate_hz") is not None:

@@ -130,13 +130,13 @@ def main() -> None:
         "--stride",
         type=int,
         default=1,
-        help="Sliding-window step in samples (same for every condition). Validation uses --window-size.",
+        help="Sliding-window step in samples (same for every condition). Validation uses dense stride=1.",
     )
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--lr", type=float, default=5e-6)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--hidden-channels", type=int, default=64)
+    parser.add_argument("--hidden-channels", type=int, default=80)
     parser.add_argument("--n-blocks", type=int, default=5)
     parser.add_argument("--kernel-size", type=int, default=5)
     parser.add_argument("--dropout", type=float, default=0.1)
@@ -207,6 +207,37 @@ def main() -> None:
             "Uniform resampling rate (Hz) for IK/ID trials before denoising and velocity computation. "
             "Default: native timeline (~200 Hz for typical H5). Example: 100: use a smaller "
             "--window-size for the same wall-clock span (e.g. 200 samples at 200 Hz is ~1 s; use 100 at 100 Hz)."
+        ),
+    )
+    parser.add_argument(
+        "--velocity-lowpass-filter",
+        action="store_true",
+        default=True,
+        help=(
+            "Apply zero-phase Butterworth LPF to computed angular velocity before model input. "
+            "Enabled by default."
+        ),
+    )
+    parser.add_argument(
+        "--no-velocity-lowpass-filter",
+        dest="velocity_lowpass_filter",
+        action="store_false",
+        help="Disable additional LPF on computed angular velocity.",
+    )
+    parser.add_argument(
+        "--velocity-lowpass-cutoff-hz",
+        type=float,
+        default=None,
+        help=(
+            "Cutoff for velocity LPF. Default uses --lowpass-cutoff-hz."
+        ),
+    )
+    parser.add_argument(
+        "--velocity-lowpass-order",
+        type=int,
+        default=None,
+        help=(
+            "Butterworth order for velocity LPF. Default uses --lowpass-order."
         ),
     )
     parser.add_argument("--input-mode", type=str, default="lower_limb",
@@ -377,6 +408,9 @@ def main() -> None:
         lowpass_cutoff_hz=args.lowpass_cutoff_hz,
         lowpass_order=args.lowpass_order,
         target_sample_rate_hz=args.target_sample_rate_hz,
+        apply_velocity_lowpass_filter=args.velocity_lowpass_filter,
+        velocity_lowpass_cutoff_hz=args.velocity_lowpass_cutoff_hz,
+        velocity_lowpass_order=args.velocity_lowpass_order,
     )
     print(
         f"  Dataset denoise: zero-phase LPF always on "
@@ -384,6 +418,20 @@ def main() -> None:
     )
     if args.target_sample_rate_hz is not None:
         print(f"  Resampling trials to target_sample_rate_hz={args.target_sample_rate_hz} before denoise/vel")
+    _vel_cut = (
+        args.velocity_lowpass_cutoff_hz
+        if args.velocity_lowpass_cutoff_hz is not None
+        else args.lowpass_cutoff_hz
+    )
+    _vel_ord = (
+        args.velocity_lowpass_order
+        if args.velocity_lowpass_order is not None
+        else args.lowpass_order
+    )
+    print(
+        f"  Velocity LPF after differentiation: {'on' if args.velocity_lowpass_filter else 'off'}"
+        + (f" ({_vel_cut} Hz, order {_vel_ord})" if args.velocity_lowpass_filter else "")
+    )
     if args.levelground_only:
         print("  Condition filter: --levelground-only (level-included tasks only; see dataset.py)")
     elif args.walking_only:
@@ -444,7 +492,7 @@ def main() -> None:
                 use_h5=True,
                 subject_ids=val_subjects,
                 window_size=args.window_size,
-                stride=args.window_size,  # non-overlapping for eval
+                stride=1,  # dense validation windows
                 walking_only=args.walking_only,
                 levelground_only=args.levelground_only,
                 normalize=False,
@@ -461,7 +509,7 @@ def main() -> None:
                 data_dir=args.train_dir,
                 b3d_files=val_files,
                 window_size=args.window_size,
-                stride=args.window_size,  # non-overlapping for eval
+                stride=1,  # dense validation windows
                 walking_only=args.walking_only,
                 levelground_only=args.levelground_only,
                 normalize=False,
@@ -523,6 +571,8 @@ def main() -> None:
                 "test_subjects": test_subjects,
                 "n_train_files": len(train_files),
                 "n_val_files": len(val_files),
+                "n_train_windows": len(train_ds),
+                "n_val_windows": (len(val_ds) if val_ds is not None else 0),
             }, allow_val_change=True)
 
     # ---- Training loop ----
@@ -532,6 +582,7 @@ def main() -> None:
     best_val_r2 = float("nan")
     epochs_no_improve = 0
     should_stop = False
+    last_epoch_idx = -1
     t0 = time.time()
 
     print(f"\n{'='*70}")
@@ -548,6 +599,7 @@ def main() -> None:
     print(f"{'='*70}")
 
     for epoch in range(args.epochs):
+        last_epoch_idx = epoch
         ep_start = time.time()
         should_stop = False
         train_loss = train_one_epoch(
@@ -569,7 +621,6 @@ def main() -> None:
             log_parts.append(f"val_mse={val_loss:.6f}")
             r2_str = f"{r2_global:.4f}" if np.isfinite(r2_global) else "nan"
             log_parts.append(f"val_R2={r2_str}")
-
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_val_r2 = r2_global
@@ -627,7 +678,7 @@ def main() -> None:
     total_time = time.time() - t0
 
     # ---- Save final model ----
-    _save_checkpoint(model, optimizer, args.epochs - 1, train_losses[-1],
+    _save_checkpoint(model, optimizer, max(last_epoch_idx, 0), train_losses[-1],
                      val_losses[-1] if val_losses else None,
                      train_ds, args, out_dir / "final_model.pt", out_dof_names)
 

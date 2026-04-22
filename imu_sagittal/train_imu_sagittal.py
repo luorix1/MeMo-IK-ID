@@ -168,7 +168,7 @@ def _save_checkpoint(
             "imu_segment_order": list(imu_unilateral_24_segment_order()),
             "imu_chain_right": list(imu_paired_chain_orders()[0]),
             "imu_chain_left": list(imu_paired_chain_orders()[1]),
-            "target_sample_rate_hz": getattr(args, "target_sample_rate_hz", None),
+            "rollout_decimate_step": int(getattr(args, "rollout_decimate_step", 1)),
         },
         path,
     )
@@ -196,8 +196,8 @@ def main() -> None:
     p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--lr", type=float, default=5e-6)
     p.add_argument("--weight-decay", type=float, default=1e-4)
-    p.add_argument("--hidden-channels", type=int, default=64)
-    p.add_argument("--n-blocks", type=int, default=7)
+    p.add_argument("--hidden-channels", type=int, default=80)
+    p.add_argument("--n-blocks", type=int, default=5)
     p.add_argument("--kernel-size", type=int, default=5)
     p.add_argument("--dropout", type=float, default=0.1)
     p.add_argument("--grad-clip", type=float, default=1.0)
@@ -224,13 +224,10 @@ def main() -> None:
         help="Butterworth order for zero-phase (forward-backward) IMU + IK/ID low-pass in the loader.",
     )
     p.add_argument(
-        "--target-sample-rate-hz",
-        type=float,
-        default=None,
-        help=(
-            "Resample IK/ID (and IMU, interpolated to IK time) to this uniform Hz before denoise/velocities. "
-            "Default: native ~200 Hz. Use a smaller --window-size for the same time span at lower Hz."
-        ),
+        "--rollout",
+        action="store_true",
+        default=False,
+        help="Keep every 2nd sample after alignment (~200 Hz -> ~100 Hz).",
     )
     p.add_argument(
         "--val-stride",
@@ -251,6 +248,7 @@ def main() -> None:
     p.add_argument("--wandb-entity", type=str, default=None)
     p.add_argument("--wandb-run-name", type=str, default=None)
     args = p.parse_args()
+    args.rollout_decimate_step = 2 if args.rollout else 1
 
     meta_root = args.meta_root or args.h5_dir
     out_dir = Path(args.output_dir)
@@ -317,7 +315,8 @@ def main() -> None:
         apply_lowpass_filter=True,
         lowpass_cutoff_hz=args.lowpass_cutoff_hz,
         lowpass_order=args.lowpass_order,
-        target_sample_rate_hz=args.target_sample_rate_hz,
+        target_sample_rate_hz=None,
+        rollout_decimate_step=args.rollout_decimate_step,
         preload_trials=False,
     )
     ds_kw_val = {**ds_kw_train, "stride": val_stride}
@@ -325,8 +324,8 @@ def main() -> None:
     print("=" * 70)
     print("LOADING TRAIN")
     print("=" * 70)
-    if args.target_sample_rate_hz is not None:
-        print(f"  target_sample_rate_hz={args.target_sample_rate_hz} (IMU+IK+ID resampled before denoise)")
+    if args.rollout_decimate_step > 1:
+        print(f"  rollout decimation: stride={args.rollout_decimate_step} (~{200.0/args.rollout_decimate_step:.0f} Hz)")
     train_ds = ImuSagittalH5Dataset(
         subject_ids=train_subjects,
         stats=None,
@@ -491,7 +490,10 @@ def main() -> None:
     )
 
     _plot_curves(train_losses, val_losses, out_dir / "training_curves.png")
-    _phz = float(args.target_sample_rate_hz) if args.target_sample_rate_hz is not None else 200.0
+    if args.rollout_decimate_step > 1:
+        _phz = 200.0 / float(args.rollout_decimate_step)
+    else:
+        _phz = 200.0
     _plot_sample(
         model,
         val_ds,

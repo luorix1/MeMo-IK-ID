@@ -749,9 +749,13 @@ def main() -> None:
     input_mode = "unknown"
     output_mode = "unknown"
     try:
-        ik_model, ik_stats, _dof_ik, w_ik, input_indices, _mi, input_mode, output_mode, _, _, _ = load_model(
-            args.ik_moment_ckpt, device
-        )
+        _lm = load_model(args.ik_moment_ckpt, device)
+        if len(_lm) == 11:
+            ik_model, ik_stats, _dof_ik, w_ik, input_indices, _mi, input_mode, output_mode, _, _, _ = _lm
+        elif len(_lm) == 10:
+            ik_model, ik_stats, _dof_ik, w_ik, input_indices, _mi, input_mode, output_mode, _, _ = _lm
+        else:
+            raise ValueError(f"Unexpected load_model() return length: {len(_lm)}")
     except TypeError:
         ck = torch.load(args.ik_moment_ckpt, map_location=device, weights_only=False)
         cfg = ck["model_config"]

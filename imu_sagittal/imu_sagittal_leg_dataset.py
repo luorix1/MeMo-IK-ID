@@ -173,6 +173,7 @@ def _load_trial_imu_sagittal_paired(
     lowpass_cutoff_hz: float,
     lowpass_order: int,
     target_sample_rate_hz: Optional[float] = None,
+    rollout_decimate_step: int = 1,
     trim_nonfinite_imu_suffix: bool = False,
 ) -> Optional[Dict[str, Any]]:
     subj_id, cond_name, trial_name, subject_h5_path = ref
@@ -239,7 +240,19 @@ def _load_trial_imu_sagittal_paired(
         if col in id_cols:
             moments[:, j] = id_data[:, id_cols.index(col)]
 
-    if target_sample_rate_hz is not None and target_sample_rate_hz > 0:
+    if rollout_decimate_step > 1 and target_sample_rate_hz is not None:
+        raise ValueError(
+            "Use either rollout_decimate_step>1 (subsample) or target_sample_rate_hz (interpolate), not both."
+        )
+
+    if rollout_decimate_step > 1:
+        idx = np.arange(0, n, int(rollout_decimate_step), dtype=np.int64)
+        time = time[idx]
+        pos = pos[idx]
+        moments = moments[idx]
+        imu_r = imu_r[idx]
+        imu_l = imu_l[idx]
+    elif target_sample_rate_hz is not None and target_sample_rate_hz > 0:
         t_src = time.astype(np.float64)
         time_rs, pos_rs, moments_rs = resample_trial_to_uniform_hz(
             t_src, pos, moments, float(target_sample_rate_hz)
@@ -343,6 +356,7 @@ class ImuSagittalH5Dataset(Dataset):
         preload_trials: bool = False,
         max_trials: Optional[int] = None,
         target_sample_rate_hz: Optional[float] = None,
+        rollout_decimate_step: int = 1,
     ) -> None:
         if not HAS_H5PY:
             raise RuntimeError("imu_sagittal_leg_dataset requires h5py.")
@@ -375,6 +389,11 @@ class ImuSagittalH5Dataset(Dataset):
         self.target_sample_rate_hz: Optional[float] = (
             None if target_sample_rate_hz is None else float(target_sample_rate_hz)
         )
+        self.rollout_decimate_step = max(1, int(rollout_decimate_step))
+        if self.rollout_decimate_step > 1 and self.target_sample_rate_hz is not None:
+            raise ValueError(
+                "Use either rollout_decimate_step>1 (subsample) or target_sample_rate_hz (interpolate), not both."
+            )
 
         self._trial_refs: List[TrialRef] = []
         self.trials: List[Dict[str, Any]] = []
@@ -424,6 +443,7 @@ class ImuSagittalH5Dataset(Dataset):
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
                 target_sample_rate_hz=self.target_sample_rate_hz,
+                rollout_decimate_step=self.rollout_decimate_step,
             )
             if trial is None:
                 continue
@@ -537,6 +557,7 @@ class ImuSagittalH5Dataset(Dataset):
             lowpass_cutoff_hz=self.lowpass_cutoff_hz,
             lowpass_order=self.lowpass_order,
             target_sample_rate_hz=self.target_sample_rate_hz,
+            rollout_decimate_step=self.rollout_decimate_step,
         )
         if trial is None:
             raise RuntimeError(f"Failed to reload trial {ref}")

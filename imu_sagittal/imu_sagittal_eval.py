@@ -345,13 +345,11 @@ def run_main(expected_target: str) -> None:
         help="Window stride (default: from checkpoint / config.json, else window size)",
     )
     parser.add_argument(
-        "--target-sample-rate-hz",
-        type=float,
-        default=None,
-        help=(
-            "Override trial resampling Hz (default: from config.json / checkpoint, else native ~200 Hz). "
-            "Must match training for correct evaluation."
-        ),
+        "--rollout",
+        action="store_true",
+        default=False,
+        help="Keep every 2nd sample after alignment (~200 Hz -> ~100 Hz). "
+             "Overrides config/checkpoint rate settings.",
     )
     parser.add_argument(
         "--eval-side",
@@ -430,16 +428,20 @@ def run_main(expected_target: str) -> None:
     )
     print(f"  eval stride: {eval_stride}")
 
-    eval_target_sr: Optional[float] = None
-    if args.target_sample_rate_hz is not None:
-        eval_target_sr = float(args.target_sample_rate_hz)
-    elif run_cfg is not None and run_cfg.get("target_sample_rate_hz") is not None:
-        eval_target_sr = float(run_cfg["target_sample_rate_hz"])
-    elif _ckpt.get("target_sample_rate_hz") is not None:
-        eval_target_sr = float(_ckpt["target_sample_rate_hz"])
-    plot_sr = float(eval_target_sr) if eval_target_sr is not None else 200.0
-    if eval_target_sr is not None:
-        print(f"  target_sample_rate_hz={eval_target_sr} (trial resampling before denoise)")
+    rollout_step = 1
+    if args.rollout:
+        rollout_step = 2
+    elif run_cfg is not None:
+        rollout_step = int(run_cfg.get("rollout_decimate_step", 1))
+    elif _ckpt.get("rollout_decimate_step") is not None:
+        rollout_step = int(_ckpt["rollout_decimate_step"])
+    rollout_step = max(1, rollout_step)
+
+    if rollout_step > 1:
+        plot_sr = 200.0 / float(rollout_step)
+        print(f"  rollout decimation: stride={rollout_step} (~{plot_sr:.0f} Hz)")
+    else:
+        plot_sr = 200.0
 
     _lat_cfg = str(run_cfg.get("laterality")) if run_cfg and run_cfg.get("laterality") else "unilateral"
     if _lat_cfg != "unilateral":
@@ -557,7 +559,8 @@ def run_main(expected_target: str) -> None:
             apply_lowpass_filter=apply_lowpass_filter,
             lowpass_cutoff_hz=lowpass_cutoff_hz,
             lowpass_order=lowpass_order,
-            target_sample_rate_hz=eval_target_sr,
+            target_sample_rate_hz=None,
+            rollout_decimate_step=rollout_step,
             preload_trials=False,
         )
 
