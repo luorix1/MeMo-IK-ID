@@ -1,0 +1,69 @@
+# Deploy ``runs/0423_ik_id_hip_huber_noise`` (trainV2 sagittal_hip_flexion, unilateral windows).
+#
+# Requires in the run directory:
+#   - best_model.onnx   (e.g. from: python convert_to_onnx.py --checkpoint .../best_model.pt --seq-len 100)
+#   - best_model.pt     (for normalization + IK indices + window_size)
+#   - config.json       (saved by trainV2; used for sample-rate / rollout sanity check)
+#
+# Model I/O (matches KineticsTCNDataset / TCN):
+#   input:  (1, 2, T)  — normalized hip angle + hip angular rate (rad, rad/s) for one leg
+#   output: (1, 1, T)  — hip moment (N·m/kg); last timestep is used for control.
+#
+# Hardware:
+#   - Angle: motor encoder (deg → rad), left leg sign flip like ``main_hip.py``.
+#   - Joint rate: ``imu_gyro_delta`` = LPF(−gyro_Y_thigh) − LPF(−gyro_Y_pelvis) (rad/s).
+#     Set ``joint_velocity_source: encoder`` to use motor velocity instead.
+#
+# Training used IK velocities; deploying with IMU-derived rate is a domain shift—retrain or
+# calibrate if needed. Align ``torque_sign_*`` with your actuator.
+
+joint_velocity_source: "imu_gyro_delta"
+imu_gyro_y_units: "deg_per_s"
+imu_gyro_filter_tau: 0.15
+
+trial_name: "trial_0423_hip_id_onnx"
+exo_on: true
+trigger_type: "typing"
+side: "both"
+scale: 1.0
+torque_limit: 18.0
+
+controller_name: "ik_id_hip_onnx"
+
+run_dir: "runs/0423_ik_id_hip_huber_noise"
+# onnx_path: "runs/0423_ik_id_hip_huber_noise/best_model.onnx"
+# checkpoint_path: "runs/0423_ik_id_hip_huber_noise/best_model.pt"
+
+onnx_providers:
+  - "CPUExecutionProvider"
+
+frame_length: 100
+fs: 100
+rollout_decimate_step: 2
+
+moment_mass_kg: 70.0
+torque_sign_r: 1.0
+torque_sign_l: 1.0
+
+hip_filter_tau: 0.05
+
+hip_rate_left_scale: 1.0
+hip_rate_right_scale: 1.0
+
+can_channel: "can0"
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+teensy_id_left: 256
+teensy_id_right: 512
+
+pelvis_imu_teensy: "left"
+pelvis_imu_which: 2
+
+use_gpio: true
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+GPIO_START_DELAY_SEC: 2.0
+
+exp_time_sec: 360
+
+jetson_teensy_python_path: "/home/exov3/Documents/Rajiv/Jetson_Teensy_Comms"
