@@ -1377,7 +1377,12 @@ def main() -> None:
     p.add_argument("--output-dir", type=str, default="results/pipeline_compare_v4")
     p.add_argument("--max-files", type=int, default=None)
     p.add_argument("--eval-split", type=str, default="test", choices=["test", "val"])
-    p.add_argument("--sample-rate-hz", type=float, default=200.0)
+    p.add_argument(
+        "--rollout",
+        action="store_true",
+        default=False,
+        help="Use stride-2 decimation (~100 Hz). If not set, follows checkpoint config rollout_decimate_step.",
+    )
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--walking-only", action="store_true", default=True)
@@ -1592,23 +1597,20 @@ def main() -> None:
             _walking_only = bool(run_cfg["walking_only"])
 
     imu_rollout_step = 1
-    if run_cfg is not None:
+    if args.rollout:
+        imu_rollout_step = 2
+    elif run_cfg is not None:
         imu_rollout_step = int(run_cfg.get("rollout_decimate_step", 1))
     elif ck_m.get("rollout_decimate_step") is not None:
         imu_rollout_step = int(ck_m["rollout_decimate_step"])
     imu_rollout_step = max(1, imu_rollout_step)
 
     imu_tgt_sr: Optional[float] = None
-    if imu_rollout_step <= 1:
-        if ck_m.get("target_sample_rate_hz") is not None:
-            imu_tgt_sr = float(ck_m["target_sample_rate_hz"])
-        elif run_cfg is not None and run_cfg.get("target_sample_rate_hz") is not None:
-            imu_tgt_sr = float(run_cfg["target_sample_rate_hz"])
 
     if imu_rollout_step > 1:
-        report_sr = float(args.sample_rate_hz) / float(imu_rollout_step)
+        report_sr = 200.0 / float(imu_rollout_step)
     else:
-        report_sr = float(imu_tgt_sr) if imu_tgt_sr is not None else float(args.sample_rate_hz)
+        report_sr = 200.0
 
     eval_ids, mode = _resolve_eval_subjects(
         test_root,
@@ -1628,7 +1630,6 @@ def main() -> None:
     print(
         f"Full-trial eval: stride=1 (per-frame), IK window_size={w_ik} (training only; not used for tiling)  "
         f"sample_rate_hz={report_sr}"
-        + (f"  target_sample_rate_hz={imu_tgt_sr}" if imu_tgt_sr is not None else "")
         + (f"  rollout_decimate_step={imu_rollout_step}" if imu_rollout_step > 1 else "")
     )
     print(f"Condition filters: walking_only={_walking_only}  levelground_only={_levelground_only}")

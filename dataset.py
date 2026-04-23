@@ -304,6 +304,8 @@ def is_walking_condition(condition_dir: Path) -> bool:
     # Common non-walking conditions.
     exclude = (
         ("static" in name)
+        or ("dynamic" in name)
+        or ("backward" in name)
     )
     return bool(include and not exclude)
 
