@@ -1,0 +1,9 @@
+numpy
+torch
+h5py
+scipy
+matplotlib
+plotly
+wandb
+scikit-learn
+onnxruntime
