@@ -16,7 +16,7 @@ imu_gyro_filter_tau: 0.15
 trial_name: "trial_0423_knee_id_trt"
 exo_on: true
 trigger_type: "typing"
-side: "both"
+side: "left"
 scale: 0.1
 torque_limit: 5.0
 
@@ -31,7 +31,7 @@ frame_length: 100
 fs: 100
 rollout_decimate_step: 2
 
-moment_mass_kg: 70.0
+moment_mass_kg: 88.0
 torque_sign_r: 1.0
 torque_sign_l: 1.0
 

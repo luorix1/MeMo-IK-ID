@@ -33,6 +33,7 @@ from run_bundle import (
     normalization_for_dof,
     resolve_run_dir,
 )
+from utils.causal_butter import make_model_io_filter_bank
 
 from .base import BaseController, CtrlResult, RollingWindow, Sensors
 
@@ -139,9 +140,14 @@ class IkIdKneeOnnxController(BaseController):
         self._expected_fs = 200.0 / float(self._train_rollout) if self._train_rollout > 1 else 200.0
         if abs(self._expected_fs - float(self.fs)) > 1.0 and not config.get("allow_fs_mismatch", False):
             raise ValueError(
-                f"Training effective rate ≈ {_expected_fs:.1f} Hz (rollout_decimate_step={self._train_rollout}), "
+                f"Training effective rate ≈ {self._expected_fs:.1f} Hz (rollout_decimate_step={self._train_rollout}), "
                 f"but fs={self.fs}. Match control loop rate or set allow_fs_mismatch: true."
             )
+
+        _lp_en = bool(config.get("model_io_lowpass_enable", True))
+        _lp_fc = float(config.get("model_io_lowpass_cutoff_hz", train_cfg.get("lowpass_cutoff_hz", 4.0)))
+        _lp_ord = int(config.get("model_io_lowpass_order", train_cfg.get("lowpass_order", 4)))
+        self._io_lp = make_model_io_filter_bank(self.fs, cutoff_hz=_lp_fc, order=_lp_ord, enabled=_lp_en)
 
     def _alpha(self, tau: float) -> float:
         if tau <= 0.0:
@@ -208,8 +214,14 @@ class IkIdKneeOnnxController(BaseController):
             self._qd_r_f = float(qd_r_raw)
             self._qd_l_f = float(qd_l_raw)
 
-        nr_r, ndr_r = self._norm_pair(self._q_r_f, self._qd_r_f, self._pr_m, self._pr_s, self._vr_m, self._vr_s)
-        nr_l, ndr_l = self._norm_pair(self._q_l_f, self._qd_l_f, self._pl_m, self._pl_s, self._vl_m, self._vl_s)
+        # Causal Butterworth (train-matched defaults) on rad / rad/s before normalization → model window.
+        q_r_m = self._io_lp["q_r"].step(self._q_r_f)
+        q_l_m = self._io_lp["q_l"].step(self._q_l_f)
+        qd_r_m = self._io_lp["qd_r"].step(self._qd_r_f)
+        qd_l_m = self._io_lp["qd_l"].step(self._qd_l_f)
+
+        nr_r, ndr_r = self._norm_pair(q_r_m, qd_r_m, self._pr_m, self._pr_s, self._vr_m, self._vr_s)
+        nr_l, ndr_l = self._norm_pair(q_l_m, qd_l_m, self._pl_m, self._pl_s, self._vl_m, self._vl_s)
 
         feat_r = np.array([nr_r, ndr_r], dtype=np.float32)
         feat_l = np.array([nr_l, ndr_l], dtype=np.float32)
@@ -220,17 +232,19 @@ class IkIdKneeOnnxController(BaseController):
         x_r = seq_r.reshape(1, 2, self.frame_length)
         x_l = seq_l.reshape(1, 2, self.frame_length)
 
-        m_r = self._forward_one_leg(x_r)
-        m_l = self._forward_one_leg(x_l)
+        m_r_raw = self._forward_one_leg(x_r)
+        m_l_raw = self._forward_one_leg(x_l)
+        m_r = self._io_lp["m_r"].step(m_r_raw)
+        m_l = self._io_lp["m_l"].step(m_l_raw)
 
         tau_r = self.torque_sign_r * m_r * self.moment_mass_kg
         tau_l = self.torque_sign_l * m_l * self.moment_mass_kg
 
         extra = {
-            "knee_angle_r": float(self._q_r_f),
-            "knee_angle_l": float(self._q_l_f),
-            "knee_angle_r_u": float(self._qd_r_f),
-            "knee_angle_l_u": float(self._qd_l_f),
+            "knee_angle_r": float(q_r_m),
+            "knee_angle_l": float(q_l_m),
+            "knee_angle_r_u": float(qd_r_m),
+            "knee_angle_l_u": float(qd_l_m),
             "knee_encoder_vel_r": float(qd_r_enc),
             "knee_encoder_vel_l": float(qd_l_enc),
             "joint_velocity_source": self._vel_source,

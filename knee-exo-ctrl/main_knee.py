@@ -2,9 +2,10 @@
 """
 Dual-knee exoskeleton control loop (os_kinetics).
 
-Uses ``controllers/ik_id_knee.py`` with encoder angle and configurable joint
-velocity (encoder or IMU gyro difference); ONNX Runtime providers are selected in YAML
-(for example TensorRT/CUDA vs CPU).
+Uses ``controllers/ik_id_knee*.py`` with encoder angle (Teensy **degrees** in-process,
+converted to **rad** for the model) and configurable joint velocity (encoder or IMU);
+trial ``.npz`` logs knee angles in **rad** and rates in **rad/s** to match training.
+ONNX / TRT providers are selected in YAML.
 
 Hardware deps (Jetson + Teensy CAN stack) are loaded from ``jetson_teensy_python_path`` in the config.
 """
@@ -31,6 +32,7 @@ if str(_PKG_ROOT) not in sys.path:
 
 from controllers import build_controller
 from controllers.base import Sensors
+from run_bundle import load_train_config, resolve_run_dir
 from utils.post_mortem_log import json_safe_for_log, write_post_mortem_json
 from utils.rate_keeper import RateKeeper
 from utils.teleplot import Teleplot
@@ -76,6 +78,14 @@ def print_config(cfg: dict) -> None:
 
 
 def build_data_log(cfg: dict) -> dict:
+    """
+    Per-sample arrays saved to ``.npz`` (same SI units as the IK/ID model):
+
+    - ``knee_angle_r``, ``knee_angle_l``: motor encoder knee angle **radians**
+      (``deg2rad(pos_R)``, ``deg2rad(-pos_L)`` — same convention as ``IkIdKnee*Controller`` raw ``q``).
+    - ``knee_angle_*_u_gyr``: IMU-derived knee rate **rad/s** (controller ``extra``).
+    - ``gyro_thigh_r``, ``gyro_shank_r``: IMU z gyro **rad/s** (from ``imu_gyro_z_units`` in YAML).
+    """
     log_size = int(cfg["exp_time_sec"] * cfg["fs"])
     return {
         "time": np.zeros(log_size),
@@ -139,6 +149,17 @@ def clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
 
 
+def imu_gyro_z_to_rad_s_scale(cfg: dict) -> float:
+    """Scale raw IMU gyro z (per ``imu_gyro_z_units``) to rad/s for logging / teleplot."""
+    units = str(cfg.get("imu_gyro_z_units", "deg_per_s")).lower().replace(" ", "")
+    if units in ("deg/s", "deg_per_s", "dps"):
+        return float(np.deg2rad(1.0))
+    if units in ("rad/s", "rad_per_s", "rps"):
+        return 1.0
+    print(f"[WARN] Unknown imu_gyro_z_units={cfg.get('imu_gyro_z_units')!r}; assuming deg/s → rad/s.")
+    return float(np.deg2rad(1.0))
+
+
 def imu6_zeros() -> np.ndarray:
     return np.zeros((6,), dtype=np.float32)
 
@@ -193,6 +214,8 @@ class DualKneeRunner:
         self._loop_timing = {"n": 0, "sum_dt": 0.0, "min_dt": float("inf"), "max_dt": 0.0}
         self._last_tick: dict = {}
 
+        self._gyro_z_to_rad_s = imu_gyro_z_to_rad_s_scale(cfg)
+
         use_gpio = bool(cfg.get("use_gpio", True))
         if use_gpio:
             try:
@@ -242,6 +265,21 @@ class DualKneeRunner:
         print(f"Initializing Right Exoskeleton (ID {hex(int(self.cfg['teensy_id_right']))})...")
         self.right_exo.connect()
 
+        # Causal Butterworth on model inputs/outputs (defaults from training ``config.json``).
+        try:
+            _rd = resolve_run_dir(str(self.cfg["run_dir"]))
+            _tc = load_train_config(_rd)
+        except Exception:
+            _tc = {}
+        self.cfg.setdefault("model_io_lowpass_cutoff_hz", float(_tc.get("lowpass_cutoff_hz", 4.0)))
+        self.cfg.setdefault("model_io_lowpass_order", int(_tc.get("lowpass_order", 4)))
+        self.cfg.setdefault("model_io_lowpass_enable", True)
+        print(
+            f"[Model I/O LPF] causal Butterworth {self.cfg['model_io_lowpass_order']}th-order "
+            f"@ {self.cfg['model_io_lowpass_cutoff_hz']} Hz on q, qd (pre-norm) and moments (post-norm); "
+            f"enable={self.cfg['model_io_lowpass_enable']}"
+        )
+
         self.controller = build_controller(self.cfg["controller_name"], config=self.cfg)
         self.controller.start()
         backend_desc = _describe_inference_backend(self.cfg)
@@ -262,6 +300,10 @@ class DualKneeRunner:
 
         print("\n--- Dual Knee Exo Control Loop Started (os_kinetics) ---")
         print(f"Teleplot: {self.cfg['teleplot_ip']}:{self.cfg['teleplot_port']}")
+        print(
+            "[Data log] knee_angle_r/l = encoder rad; knee_angle_*_u_gyr = rad/s; "
+            "gyro_thigh/shank_r = rad/s (per imu_gyro_z_units)."
+        )
         print("Press Ctrl+C to stop.")
 
     def shutdown(self) -> None:
@@ -472,10 +514,11 @@ class DualKneeRunner:
                     self.tp.sendValue("knee_angle_r", r.extra.get("knee_angle_r", 0.0))
                     self.tp.sendValue("knee_angle_l", r.extra.get("knee_angle_l", 0.0))
                     self.tp.sendValue("GPIO", gpio_state)
-                    self.tp.sendValue("gyro_thigh_r", float(imu_R1[gz_idx]))
-                    self.tp.sendValue("gyro_thigh_l", float(-imu_L1[gz_idx]))
-                    self.tp.sendValue("gyro_shank_r", float(imu_R2[gz_idx]))
-                    self.tp.sendValue("gyro_shank_l", float(-imu_L2[gz_idx]))
+                    gz = self._gyro_z_to_rad_s
+                    self.tp.sendValue("gyro_thigh_r", float(imu_R1[gz_idx]) * gz)
+                    self.tp.sendValue("gyro_thigh_l", float(-imu_L1[gz_idx]) * gz)
+                    self.tp.sendValue("gyro_shank_r", float(imu_R2[gz_idx]) * gz)
+                    self.tp.sendValue("gyro_shank_l", float(-imu_L2[gz_idx]) * gz)
                     self.tp.sendValue("moment_nm_kg_r", r.extra.get("moment_nm_kg_r", 0.0))
                     self.tp.sendValue("moment_nm_kg_l", r.extra.get("moment_nm_kg_l", 0.0))
                     self.tp.sendValue("knee_enc_vel_r", r.extra.get("knee_encoder_vel_r", 0.0))
@@ -486,12 +529,14 @@ class DualKneeRunner:
 
             if self.current_idx < len(self.data_log["time"]):
                 self.data_log["time"][self.current_idx] = actual_time
-                self.data_log["knee_angle_r"][self.current_idx] = pos_R
-                self.data_log["knee_angle_l"][self.current_idx] = -pos_L
+                # Encoder: Teensy ``pos_*`` is degrees → log radians (model / controller convention).
+                self.data_log["knee_angle_r"][self.current_idx] = float(np.deg2rad(pos_R))
+                self.data_log["knee_angle_l"][self.current_idx] = float(np.deg2rad(-pos_L))
                 self.data_log["knee_angle_r_u_gyr"][self.current_idx] = r.extra.get("knee_r_u_gyr", 0.0)
                 self.data_log["knee_angle_l_u_gyr"][self.current_idx] = r.extra.get("knee_l_u_gyr", 0.0)
-                self.data_log["gyro_thigh_r"][self.current_idx] = float(imu_R1[gz_idx])
-                self.data_log["gyro_shank_r"][self.current_idx] = float(imu_R2[gz_idx])
+                gz = self._gyro_z_to_rad_s
+                self.data_log["gyro_thigh_r"][self.current_idx] = float(imu_R1[gz_idx]) * gz
+                self.data_log["gyro_shank_r"][self.current_idx] = float(imu_R2[gz_idx]) * gz
                 self.data_log["cmd_L"][self.current_idx] = cmd_L
                 self.data_log["cmd_R"][self.current_idx] = cmd_R
                 self.data_log["K_r"][self.current_idx] = r.extra.get("K_r", 0.0)

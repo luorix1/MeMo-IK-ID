@@ -26,6 +26,7 @@ from run_bundle import (
     normalization_for_dof,
     resolve_run_dir,
 )
+from utils.causal_butter import make_model_io_filter_bank
 
 from .base import BaseController, CtrlResult, RollingWindow, Sensors
 from .trt_worker import TRTWorker
@@ -123,6 +124,11 @@ class IkIdKneeTrtController(BaseController):
                 f"Training effective rate ≈ {self._expected_fs:.1f} Hz, but fs={self.fs}."
             )
 
+        _lp_en = bool(config.get("model_io_lowpass_enable", True))
+        _lp_fc = float(config.get("model_io_lowpass_cutoff_hz", train_cfg.get("lowpass_cutoff_hz", 4.0)))
+        _lp_ord = int(config.get("model_io_lowpass_order", train_cfg.get("lowpass_order", 4)))
+        self._io_lp = make_model_io_filter_bank(self.fs, cutoff_hz=_lp_fc, order=_lp_ord, enabled=_lp_en)
+
         self._in_q = mp.Queue(maxsize=1)
         self._out_q = mp.Queue(maxsize=1)
         self._worker = TRTWorker(
@@ -213,8 +219,13 @@ class IkIdKneeTrtController(BaseController):
             self._qd_r_f = float(qd_r_raw)
             self._qd_l_f = float(qd_l_raw)
 
-        nr_r, ndr_r = self._norm_pair(self._q_r_f, self._qd_r_f, self._pr_m, self._pr_s, self._vr_m, self._vr_s)
-        nr_l, ndr_l = self._norm_pair(self._q_l_f, self._qd_l_f, self._pl_m, self._pl_s, self._vl_m, self._vl_s)
+        q_r_m = self._io_lp["q_r"].step(self._q_r_f)
+        q_l_m = self._io_lp["q_l"].step(self._q_l_f)
+        qd_r_m = self._io_lp["qd_r"].step(self._qd_r_f)
+        qd_l_m = self._io_lp["qd_l"].step(self._qd_l_f)
+
+        nr_r, ndr_r = self._norm_pair(q_r_m, qd_r_m, self._pr_m, self._pr_s, self._vr_m, self._vr_s)
+        nr_l, ndr_l = self._norm_pair(q_l_m, qd_l_m, self._pl_m, self._pl_s, self._vl_m, self._vl_s)
 
         seq_r = self.x_r.push_last(np.array([nr_r, ndr_r], dtype=np.float32))
         seq_l = self.x_l.push_last(np.array([nr_l, ndr_l], dtype=np.float32))
@@ -223,16 +234,18 @@ class IkIdKneeTrtController(BaseController):
 
         self._drain_out_q()
         self._send_latest(x_r, x_l)
-        m_r, m_l = self._try_recv(timeout_s=0.002)
+        m_r_raw, m_l_raw = self._try_recv(timeout_s=0.002)
+        m_r = self._io_lp["m_r"].step(m_r_raw)
+        m_l = self._io_lp["m_l"].step(m_l_raw)
 
         tau_r = self.torque_sign_r * m_r * self.moment_mass_kg
         tau_l = self.torque_sign_l * m_l * self.moment_mass_kg
 
         extra = {
-            "knee_angle_r": float(self._q_r_f),
-            "knee_angle_l": float(self._q_l_f),
-            "knee_angle_r_u": float(self._qd_r_f),
-            "knee_angle_l_u": float(self._qd_l_f),
+            "knee_angle_r": float(q_r_m),
+            "knee_angle_l": float(q_l_m),
+            "knee_angle_r_u": float(qd_r_m),
+            "knee_angle_l_u": float(qd_l_m),
             "knee_encoder_vel_r": float(qd_r_enc),
             "knee_encoder_vel_l": float(qd_l_enc),
             "joint_velocity_source": self._vel_source,
