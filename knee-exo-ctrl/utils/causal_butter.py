@@ -13,31 +13,37 @@ from typing import Dict
 
 @dataclass
 class CausalButterworthLowpass:
-    """One scalar stream; ``step`` returns filtered sample."""
+    """One scalar stream; ``step`` returns filtered sample (causal ``lfilter``)."""
 
     b: object
     a: object
     zi: object
+    zi0: object
     disabled: bool
+    _primed: bool
 
     @classmethod
     def create(cls, fs_hz: float, cutoff_hz: float, order: int, *, enabled: bool) -> CausalButterworthLowpass:
         if not enabled or cutoff_hz <= 0.0 or order < 1:
-            return cls(b=None, a=None, zi=None, disabled=True)
+            return cls(b=None, a=None, zi=None, zi0=None, disabled=True, _primed=True)
         from scipy import signal
 
         nyq = 0.5 * float(fs_hz)
         wn = min(float(cutoff_hz) / nyq, 0.499)
         b, a = signal.butter(int(order), wn, btype="low", analog=False)
-        zi = signal.lfilter_zi(b, a)
-        return cls(b=b, a=a, zi=zi, disabled=False)
+        zi0 = signal.lfilter_zi(b, a)
+        return cls(b=b, a=a, zi=zi0, zi0=zi0, disabled=False, _primed=False)
 
     def step(self, x: float) -> float:
         if self.disabled:
             return float(x)
         from scipy import signal
 
-        y, self.zi = signal.lfilter(self.b, self.a, [float(x)], zi=self.zi)
+        x = float(x)
+        if not self._primed:
+            self.zi = self.zi0 * x
+            self._primed = True
+        y, self.zi = signal.lfilter(self.b, self.a, [x], zi=self.zi)
         return float(y[0])
 
 

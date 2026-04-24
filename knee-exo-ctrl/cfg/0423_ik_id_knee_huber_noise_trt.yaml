@@ -12,6 +12,10 @@
 joint_velocity_source: "imu_gyro_delta"
 imu_gyro_z_units: "deg_per_s"
 imu_gyro_filter_tau: 0.15
+# Optional: causal Butterworth on model I/O (defaults from training config.json via main_knee.setup).
+# model_io_lowpass_enable: true
+# model_io_lowpass_cutoff_hz: 4.0
+# model_io_lowpass_order: 4
 
 trial_name: "trial_0423_knee_id_trt"
 exo_on: true
