@@ -84,6 +84,19 @@ class TRTWorker(mp.Process):
         except Full:
             pass
 
+    def _run_single(self, x_single: np.ndarray, context, stream, d_in, d_out, use_tensor_api: bool, bindings):
+        """Execute one single-leg inference and return output array."""
+        import torch
+
+        x_single = np.ascontiguousarray(x_single, dtype=np.float32)
+        d_in.copy_(torch.from_numpy(x_single), non_blocking=True)
+        if use_tensor_api:
+            context.execute_async_v3(stream_handle=stream.cuda_stream)
+        else:
+            context.execute_v2(bindings=bindings)
+        stream.synchronize()
+        return d_out.detach().cpu().numpy().copy()
+
     def run(self):
         import torch
         import tensorrt as trt
@@ -103,21 +116,40 @@ class TRTWorker(mp.Process):
 
         context = engine.create_execution_context()
         stream = torch.cuda.Stream()
-        d_in = torch.empty(self.batch_in_shape, dtype=torch.float32, device="cuda")
-        d_out = torch.empty(self.batch_out_shape, dtype=torch.float32, device="cuda")
-
         use_tensor_api = hasattr(engine, "num_io_tensors") and hasattr(engine, "get_tensor_name")
         bindings = None
+        use_batch2 = True
+        d_in = None
+        d_out = None
+
         if use_tensor_api:
             in_name, out_name = self._find_io_names(engine, trt)
             if in_name is None or out_name is None:
                 raise RuntimeError("Failed to find TRT I/O tensor names")
+
             ok = context.set_input_shape(in_name, self.batch_in_shape)
             if ok is False:
-                raise RuntimeError(f"TRT refused input shape {self.batch_in_shape}")
+                ok1 = context.set_input_shape(in_name, self.single_in_shape)
+                if ok1 is False:
+                    raise RuntimeError(
+                        f"TRT refused both shapes: batch={self.batch_in_shape}, single={self.single_in_shape}"
+                    )
+                use_batch2 = False
+                print(f"[TRTWorker] Engine is single-batch ({self.single_in_shape}); using sequential per-leg inference.")
+            else:
+                use_batch2 = True
+
+            in_shape = self.batch_in_shape if use_batch2 else self.single_in_shape
+            out_shape = self.batch_out_shape if use_batch2 else self.single_out_shape
+            d_in = torch.empty(in_shape, dtype=torch.float32, device="cuda")
+            d_out = torch.empty(out_shape, dtype=torch.float32, device="cuda")
             context.set_tensor_address(in_name, int(d_in.data_ptr()))
             context.set_tensor_address(out_name, int(d_out.data_ptr()))
         else:
+            use_batch2 = False
+            print("[TRTWorker] Legacy TRT API; using sequential per-leg inference.")
+            d_in = torch.empty(self.single_in_shape, dtype=torch.float32, device="cuda")
+            d_out = torch.empty(self.single_out_shape, dtype=torch.float32, device="cuda")
             bindings = [int(d_in.data_ptr()), int(d_out.data_ptr())]
 
         # Warmup
@@ -143,21 +175,27 @@ class TRTWorker(mp.Process):
             if x_r.shape != self.single_in_shape or x_l.shape != self.single_in_shape:
                 continue
 
-            x_batch = np.concatenate([x_r, x_l], axis=0)
-            x_batch = np.ascontiguousarray(x_batch, dtype=np.float32)
-            d_in.copy_(torch.from_numpy(x_batch), non_blocking=True)
+            if use_batch2:
+                x_batch = np.concatenate([x_r, x_l], axis=0)
+                x_batch = np.ascontiguousarray(x_batch, dtype=np.float32)
+                d_in.copy_(torch.from_numpy(x_batch), non_blocking=True)
 
-            if use_tensor_api:
-                context.execute_async_v3(stream_handle=stream.cuda_stream)
+                if use_tensor_api:
+                    context.execute_async_v3(stream_handle=stream.cuda_stream)
+                else:
+                    context.execute_v2(bindings=bindings)
+                stream.synchronize()
+
+                y_batch = d_out.detach().cpu().numpy().copy()
+                if y_batch.shape != self.batch_out_shape:
+                    continue
+                y_r = y_batch[0].reshape(self.single_out_shape).copy()
+                y_l = y_batch[1].reshape(self.single_out_shape).copy()
             else:
-                context.execute_v2(bindings=bindings)
-            stream.synchronize()
-
-            y_batch = d_out.detach().cpu().numpy().copy()
-            if y_batch.shape != self.batch_out_shape:
-                continue
-            y_r = y_batch[0].reshape(self.single_out_shape).copy()
-            y_l = y_batch[1].reshape(self.single_out_shape).copy()
+                y_r_arr = self._run_single(x_r, context, stream, d_in, d_out, use_tensor_api, bindings)
+                y_l_arr = self._run_single(x_l, context, stream, d_in, d_out, use_tensor_api, bindings)
+                y_r = y_r_arr.reshape(self.single_out_shape).copy()
+                y_l = y_l_arr.reshape(self.single_out_shape).copy()
             self._put_latest_output((y_r, y_l))
 
         print("[TRTWorker] Exiting")
