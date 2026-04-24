@@ -310,9 +310,10 @@ class DualKneeRunner:
         second_pulse_sent = False
         second_pulse_end: Optional[float] = None
 
-        k = -1
+        gz_idx = int(self.cfg.get("teleplot_gyro_z_index", 5))
+
         while True:
-            _, _, k = rk.wait()
+            _, _, _ = rk.wait()
             loop_now = time.perf_counter()
             step_start = loop_now
             if prev_loop_time is None:
@@ -422,17 +423,11 @@ class DualKneeRunner:
                     self.tp.sendValue("knee_angle_l_u", r.extra.get("knee_angle_l_u", 0.0))
                     self.tp.sendValue("knee_angle_r", r.extra.get("knee_angle_r", 0.0))
                     self.tp.sendValue("knee_angle_l", r.extra.get("knee_angle_l", 0.0))
-                    self.tp.sendValue("Soft_ctrl_r", r.extra.get("Soft_ctrl_r", 0.0))
-                    self.tp.sendValue("Soft_ctrl_l", r.extra.get("Soft_ctrl_l", 0.0))
-                    self.tp.sendValue("assist_gate_r", r.extra.get("assist_gate_r", 0.0))
-                    self.tp.sendValue("assist_gate_l", r.extra.get("assist_gate_l", 0.0))
-                    self.tp.sendValue("state_l", r.extra.get("state_l", 0.0))
                     self.tp.sendValue("GPIO", gpio_state)
-                    self.tp.sendValue("gyro_thigh_r", float(imu_R1[5]))
-                    self.tp.sendValue("gyro_thigh_l", float(-imu_L1[5]))
-                    self.tp.sendValue("gyro_shank_r", float(imu_R2[5]))
-                    self.tp.sendValue("gyro_shank_l", float(-imu_L2[5]))
-                    self.tp.sendValue("K_l", r.extra.get("K_l", 0.0))
+                    self.tp.sendValue("gyro_thigh_r", float(imu_R1[gz_idx]))
+                    self.tp.sendValue("gyro_thigh_l", float(-imu_L1[gz_idx]))
+                    self.tp.sendValue("gyro_shank_r", float(imu_R2[gz_idx]))
+                    self.tp.sendValue("gyro_shank_l", float(-imu_L2[gz_idx]))
                     self.tp.sendValue("moment_nm_kg_r", r.extra.get("moment_nm_kg_r", 0.0))
                     self.tp.sendValue("moment_nm_kg_l", r.extra.get("moment_nm_kg_l", 0.0))
                     self.tp.sendValue("knee_enc_vel_r", r.extra.get("knee_encoder_vel_r", 0.0))
@@ -447,8 +442,8 @@ class DualKneeRunner:
                 self.data_log["knee_angle_l"][self.current_idx] = -pos_L
                 self.data_log["knee_angle_r_u_gyr"][self.current_idx] = r.extra.get("knee_r_u_gyr", 0.0)
                 self.data_log["knee_angle_l_u_gyr"][self.current_idx] = r.extra.get("knee_l_u_gyr", 0.0)
-                self.data_log["gyro_thigh_r"][self.current_idx] = float(imu_R1[5])
-                self.data_log["gyro_shank_r"][self.current_idx] = float(imu_R2[5])
+                self.data_log["gyro_thigh_r"][self.current_idx] = float(imu_R1[gz_idx])
+                self.data_log["gyro_shank_r"][self.current_idx] = float(imu_R2[gz_idx])
                 self.data_log["cmd_L"][self.current_idx] = cmd_L
                 self.data_log["cmd_R"][self.current_idx] = cmd_R
                 self.data_log["K_r"][self.current_idx] = r.extra.get("K_r", 0.0)

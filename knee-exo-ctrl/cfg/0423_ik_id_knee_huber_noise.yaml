@@ -58,6 +58,9 @@ knee_filter_tau: 0.05
 can_channel: "can0"
 teleplot_ip: "127.0.0.1"
 teleplot_port: 47269
+# IMU layout: accel xyz = 0..2, gyro xyz = 3..5 (matches hip-exo-ctrl ``teleplot_gyro_y_index``).
+teleplot_gyro_z_index: 5
+
 teensy_id_left: 256
 teensy_id_right: 512
 
