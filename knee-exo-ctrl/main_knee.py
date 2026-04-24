@@ -2,8 +2,9 @@
 """
 Dual-knee exoskeleton control loop (os_kinetics).
 
-Uses ``controllers/ik_id_knee.py`` (ONNX) with encoder angle and configurable joint
-velocity (encoder or IMU gyro difference); see the YAML and ``ik_id_knee_onnx`` docstring.
+Uses ``controllers/ik_id_knee.py`` with encoder angle and configurable joint
+velocity (encoder or IMU gyro difference); ONNX Runtime providers are selected in YAML
+(for example TensorRT/CUDA vs CPU).
 
 Hardware deps (Jetson + Teensy CAN stack) are loaded from ``jetson_teensy_python_path`` in the config.
 """
@@ -151,6 +152,16 @@ def pack_imu6_from_device(dev, which: int) -> np.ndarray:
     return np.asarray([a[0], a[1], a[2], g[0], g[1], g[2]], dtype=np.float32)
 
 
+def _describe_inference_backend(cfg: dict) -> str:
+    controller_name = str(cfg.get("controller_name", ""))
+    if controller_name == "ik_id_knee_onnx":
+        providers = [str(p) for p in cfg.get("onnx_providers", ["CPUExecutionProvider"])]
+        if any(p.lower() == "tensorrtexecutionprovider" for p in providers):
+            return f"ONNX Runtime TensorRT path ({providers})"
+        return f"ONNX Runtime non-TRT path ({providers})"
+    return controller_name or "unknown"
+
+
 def latest_pos_vel(dev) -> Tuple[float, float]:
     pos = float(dev.Motor_pos_data[-1]) if dev.Motor_pos_data else 0.0
     vel = float(dev.Motor_vel_data[-1]) if dev.Motor_vel_data else 0.0
@@ -222,6 +233,14 @@ class DualKneeRunner:
 
         self.controller = build_controller(self.cfg["controller_name"], config=self.cfg)
         self.controller.start()
+        backend_desc = _describe_inference_backend(self.cfg)
+        print(f"[Inference] backend: {backend_desc}")
+        if (
+            str(self.cfg.get("controller_name", "")).lower() == "ik_id_knee_onnx"
+            and "tensorrtexecutionprovider"
+            not in {str(p).lower() for p in self.cfg.get("onnx_providers", [])}
+        ):
+            print("[Inference][WARN] TensorRT provider is not enabled; this run is not using TRT.")
 
         try:
             t0 = time.perf_counter()

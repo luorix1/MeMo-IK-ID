@@ -67,7 +67,7 @@ echo
 
 cd "${ROOT_DIR}"
 
-CONVERT_CMD=(conda run -n "${ENV_NAME}" python "${KNEE_DIR}/convert_to_trt.py"
+CONVERT_CMD=(python "${KNEE_DIR}/convert_to_trt.py"
   --checkpoint "${CHECKPOINT}"
   --onnx "${ONNX_PATH}"
   --output "${TRT_PATH}"
@@ -85,7 +85,7 @@ echo "[1/3] Converting PT/ONNX -> TRT ..."
 
 echo
 echo "[2/3] Smoke test: ONNX numerical verify ..."
-VERIFY_CMD=(conda run -n "${ENV_NAME}" python "${KNEE_DIR}/run_onnx.py" verify
+VERIFY_CMD=(python "${KNEE_DIR}/run_onnx.py" verify
   --onnx "${ONNX_PATH}"
   --checkpoint "${CHECKPOINT}"
 )
@@ -96,7 +96,7 @@ fi
 
 echo
 echo "[3/3] Smoke test: ONNX latency bench ..."
-BENCH_CMD=(conda run -n "${ENV_NAME}" python "${KNEE_DIR}/run_onnx.py" bench
+BENCH_CMD=(python "${KNEE_DIR}/run_onnx.py" bench
   --onnx "${ONNX_PATH}"
   --checkpoint "${CHECKPOINT}"
   --warmup 50

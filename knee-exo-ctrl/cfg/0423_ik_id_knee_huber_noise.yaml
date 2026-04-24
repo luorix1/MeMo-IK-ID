@@ -37,6 +37,8 @@ run_dir: "runs/0423_ik_id_knee_huber_noise"
 # checkpoint_path: "runs/0423_ik_id_knee_huber_noise/best_model.pt"
 
 onnx_providers:
+  - "TensorrtExecutionProvider"
+  - "CUDAExecutionProvider"
   - "CPUExecutionProvider"
 
 # Match trainV2 ``window_size`` (see config.json / checkpoint).
@@ -48,7 +50,7 @@ fs: 100
 rollout_decimate_step: 2
 
 # N·m/kg → N·m (approximate exo torque scale; tune per subject / calibration).
-moment_mass_kg: 70.0
+moment_mass_kg: 88.0
 torque_sign_r: 1.0
 torque_sign_l: 1.0
 
