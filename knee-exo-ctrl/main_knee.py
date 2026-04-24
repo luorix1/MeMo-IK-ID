@@ -31,6 +31,7 @@ if str(_PKG_ROOT) not in sys.path:
 
 from controllers import build_controller
 from controllers.base import Sensors
+from utils.post_mortem_log import json_safe_for_log, write_post_mortem_json
 from utils.rate_keeper import RateKeeper
 from utils.teleplot import Teleplot
 
@@ -182,6 +183,16 @@ class DualKneeRunner:
         self.mocap_trigger = None
         self.tp: Optional[Teleplot] = None
 
+        # Post-mortem JSON (see utils/post_mortem_log.py); filled by main loop / main().
+        self._pm_written = False
+        self._pm_exit_reason = "unknown"
+        self._pm_exception_message: Optional[str] = None
+        self._pm_exception_traceback: Optional[str] = None
+        self._pm_run_start_perf: Optional[float] = None
+        self._pm_wall_iso_start: Optional[str] = None
+        self._loop_timing = {"n": 0, "sum_dt": 0.0, "min_dt": float("inf"), "max_dt": 0.0}
+        self._last_tick: dict = {}
+
         use_gpio = bool(cfg.get("use_gpio", True))
         if use_gpio:
             try:
@@ -318,6 +329,8 @@ class DualKneeRunner:
         rk = RateKeeper(float(self.cfg["fs"]))
         rk.start()
         t0 = time.perf_counter()
+        self._pm_run_start_perf = t0
+        self._pm_wall_iso_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         prev_loop_time: Optional[float] = None
 
         trial_start_sec = 0.0
@@ -339,8 +352,12 @@ class DualKneeRunner:
                 loop_dt = 0.0
             else:
                 loop_dt = loop_now - prev_loop_time
+                lt = self._loop_timing
+                lt["n"] = int(lt["n"]) + 1
+                lt["sum_dt"] = float(lt["sum_dt"]) + float(loop_dt)
+                lt["min_dt"] = min(float(lt["min_dt"]), float(loop_dt))
+                lt["max_dt"] = max(float(lt["max_dt"]), float(loop_dt))
             prev_loop_time = loop_now
-            _ = loop_dt
 
             use_left = side in (Side.LEFT, Side.BOTH)
             use_right = side in (Side.RIGHT, Side.BOTH)
@@ -390,12 +407,25 @@ class DualKneeRunner:
             cmd_L = clamp(cmd_L, -tlim, tlim)
             cmd_R = clamp(cmd_R, -tlim, tlim)
 
+            actual_time = step_start - t0
+
+            self._last_tick = {
+                "t_s": float(actual_time),
+                "cmd_L": float(cmd_L),
+                "cmd_R": float(cmd_R),
+                "applied_L": float(r.applied_L),
+                "applied_R": float(r.applied_R),
+                "model_out_L": float(r.model_out_L),
+                "model_out_R": float(r.model_out_R),
+                "extra": json_safe_for_log(dict(r.extra)),
+            }
+
             if use_left:
                 self.left_exo.setTorque(-cmd_L)
             if use_right:
                 self.right_exo.setTorque(cmd_R)
 
-            now = step_start - t0
+            now = actual_time
 
             if self.gpio is not None:
                 if (not first_pulse_sent) and (now >= trial_start_sec + pulse_after_start):
@@ -429,7 +459,6 @@ class DualKneeRunner:
                     second_pulse_end = None
 
             step_end = time.perf_counter()
-            actual_time = step_start - t0
 
             if self.tp is not None:
                 try:
@@ -474,10 +503,24 @@ class DualKneeRunner:
             self.current_idx += 1
 
             if self.current_idx >= len(self.data_log["time"]):
+                self._pm_exit_reason = "completed"
                 break
 
 
 _RUNNER: Optional[DualKneeRunner] = None
+
+
+def _atexit_post_mortem() -> None:
+    global _RUNNER
+    try:
+        if _RUNNER is not None and not getattr(_RUNNER, "_pm_written", False):
+            write_post_mortem_json(
+                _RUNNER,
+                npz_path=None,
+                note="atexit_fallback; main finally may not have run — npz may be missing or partial",
+            )
+    except Exception:
+        pass
 
 
 def _handle_signal(sig, frame) -> None:
@@ -485,6 +528,7 @@ def _handle_signal(sig, frame) -> None:
     print(f"\nSignal {sig} received. Shutting down...")
     try:
         if _RUNNER:
+            _RUNNER._pm_exit_reason = f"signal:{int(sig)}"
             _RUNNER.shutdown()
     finally:
         sys.exit(0)
@@ -499,6 +543,7 @@ def main() -> None:
     runner = DualKneeRunner(cfg)
     _RUNNER = runner
 
+    atexit.register(_atexit_post_mortem)
     atexit.register(runner.shutdown)
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
@@ -509,7 +554,11 @@ def main() -> None:
         runner.run()
     except KeyboardInterrupt:
         print("KeyboardInterrupt received.")
+        runner._pm_exit_reason = "keyboard_interrupt"
     except Exception as e:
+        runner._pm_exit_reason = "exception"
+        runner._pm_exception_message = str(e)
+        runner._pm_exception_traceback = traceback.format_exc()
         print(f"[MAIN ERROR] {e}")
         traceback.print_exc()
     finally:
@@ -519,8 +568,11 @@ def main() -> None:
         print("Preparing data for saving...")
         for key in runner.data_log.keys():
             runner.data_log[key] = runner.data_log[key][: runner.current_idx]
-        np.savez(runner.cfg["trial_name"], **runner.data_log)
-        print(f"=== Saving data for trial: {runner.cfg['trial_name']} ===")
+        trial_key = runner.cfg["trial_name"]
+        npz_path = Path(f"{trial_key}.npz").resolve()
+        np.savez(str(npz_path), **runner.data_log)
+        print(f"=== Saving data for trial: {trial_key} ===")
+        write_post_mortem_json(runner, npz_path=str(npz_path))
 
 
 if __name__ == "__main__":
