@@ -17,8 +17,8 @@ trial_name: "trial_0423_knee_id_trt"
 exo_on: true
 trigger_type: "typing"
 side: "both"
-scale: 1.0
-torque_limit: 18.0
+scale: 0.1
+torque_limit: 5.0
 
 controller_name: "ik_id_knee_trt"
 
