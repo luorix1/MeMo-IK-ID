@@ -496,34 +496,108 @@ def _plot_rmse_comparison(
 
 LOC_BUCKET_LEGEND: Dict[str, str] = {
     "LG": "Level ground + treadmill + incline (levelground_*; treadmill or treadmill_*; incline_*)",
-    "RA/RD": "All ramp trials (ramp*; includes explicit ascent/descent naming when present)",
-    "SA/SD": "All stair trials (stair*; includes explicit ascent/descent naming when present)",
+    "RA": "Ramp ascent",
+    "RD": "Ramp descent",
+    "SA": "Stair ascent",
+    "SD": "Stair descent",
+    "RA/RD": "All ramp trials when ascent/descent is not explicit",
+    "SA/SD": "All stair trials when ascent/descent is not explicit",
     "OTHER": "Did not match the rules above (still included in overall metrics)",
 }
 
 
-def _classify_loc_bucket(condition: str, trial: str) -> str:
+def _load_ascent_descent_mapping(path: Optional[str]) -> Dict[Tuple[str, str, str], str]:
+    """
+    Load explicit ascent/descent bucket labels from JSON.
+
+    Expected schema:
+      {
+        "subjects": {
+          "S035": {
+            "stair_bundle2": 22,
+            "incline_treadmill_bundle1": 3
+          }
+        }
+      }
+
+    Mapping rule in this file:
+      odd trial_NN -> ascent
+      even trial_NN -> descent
+    """
+    if not path:
+        return {}
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"--loc-ascent-descent-map not found: {p}")
+    doc = json.loads(p.read_text())
+    subjects = doc.get("subjects", {})
+    if not isinstance(subjects, dict):
+        raise ValueError("Invalid mapping JSON: missing dict field 'subjects'.")
+
+    out: Dict[Tuple[str, str, str], str] = {}
+    for sid_raw, conds in subjects.items():
+        if not isinstance(conds, dict):
+            continue
+        sid = str(sid_raw).upper()
+        for cond_raw, n_raw in conds.items():
+            try:
+                n_trials = int(n_raw)
+            except Exception:
+                continue
+            cond = str(cond_raw)
+            if "stair" in cond.lower():
+                asc_label, dsc_label = "SA", "SD"
+            elif "incline" in cond.lower() or "ramp" in cond.lower():
+                asc_label, dsc_label = "RA", "RD"
+            else:
+                continue
+            for i in range(1, max(0, n_trials) + 1):
+                trial = f"trial_{i:02d}"
+                out[(sid, cond, trial)] = asc_label if (i % 2 == 1) else dsc_label
+    return out
+
+
+def _classify_loc_bucket(
+    subject_id: str,
+    condition: str,
+    trial: str,
+    loc_map: Optional[Dict[Tuple[str, str, str], str]] = None,
+) -> str:
     """
     Map H5 ``condition`` group + ``trial`` key to a coarse locomotion bucket for reporting.
 
     Priority: trial prefix token (LG/RA/RD/SA/SD) → explicit ramp/stair naming in condition/trial
     text → LG prefixes → OTHER.
     """
+    sid = (subject_id or "").strip().upper()
     c = (condition or "").strip().lower()
     tr = (trial or "").strip().lower()
+    if loc_map:
+        mapped = loc_map.get((sid, condition, trial))
+        if mapped is not None:
+            return mapped
+
     trial_first = (trial or "").strip().split("_")[0].upper()
     if trial_first == "LG":
         return "LG"
-    if trial_first in ("RA", "RD"):
-        return "RA/RD"
-    if trial_first in ("SA", "SD"):
-        return "SA/SD"
+    if trial_first == "RA":
+        return "RA"
+    if trial_first == "RD":
+        return "RD"
+    if trial_first == "SA":
+        return "SA"
+    if trial_first == "SD":
+        return "SD"
 
     if (
         "incline" in c
         or c.startswith("incline_")
         or re.match(r"^incline_\d+_[lr]$", c)
     ):
+        if re.search(r"(_up|up_|ascent)", c) or re.search(r"(_up|up_|ascent)", tr):
+            return "RA"
+        if re.search(r"(_down|down_|descent)", c) or re.search(r"(_down|down_|descent)", tr):
+            return "RD"
         return "RA/RD"
 
     if (
@@ -531,6 +605,10 @@ def _classify_loc_bucket(condition: str, trial: str) -> str:
         or c.startswith("stair_")
         or re.match(r"^stair_\d+_[lr]$", c)
     ):
+        if re.search(r"(_up|up_|ascent)", c) or re.search(r"(_up|up_|ascent)", tr):
+            return "SA"
+        if re.search(r"(_down|down_|descent)", c) or re.search(r"(_down|down_|descent)", tr):
+            return "SD"
         return "SA/SD"
 
     if (
@@ -547,15 +625,19 @@ def _trial_error_accumulators(n_ch: int) -> Dict[str, Any]:
     return {
         "sum_sq_d": np.zeros(n_ch, dtype=np.float64),
         "sum_sq_c": np.zeros(n_ch, dtype=np.float64),
+        "sum_sq_gtang": np.zeros(n_ch, dtype=np.float64),
         "sum_abs_d": np.zeros(n_ch, dtype=np.float64),
         "sum_abs_c": np.zeros(n_ch, dtype=np.float64),
+        "sum_abs_gtang": np.zeros(n_ch, dtype=np.float64),
         "sum_t": np.zeros(n_ch, dtype=np.float64),
         "sum_t2": np.zeros(n_ch, dtype=np.float64),
         "n_elem": 0,
         "sum_sq_all_d": 0.0,
         "sum_sq_all_c": 0.0,
+        "sum_sq_all_gtang": 0.0,
         "sum_abs_all_d": 0.0,
         "sum_abs_all_c": 0.0,
+        "sum_abs_all_gtang": 0.0,
         "sum_t_all": 0.0,
         "sum_t2_all": 0.0,
         "n_all": 0,
@@ -567,28 +649,35 @@ def _accum_add_trial_errors(
     acc: Dict[str, Any],
     diff_d: np.ndarray,
     diff_c: np.ndarray,
+    diff_gtang: np.ndarray,
     y_b: np.ndarray,
 ) -> None:
     """Accumulate one trial's finite-frame errors (diff_* and GT y_b same length)."""
     sum_sq_d = acc["sum_sq_d"]
     sum_sq_c = acc["sum_sq_c"]
+    sum_sq_gtang = acc["sum_sq_gtang"]
     sum_abs_d = acc["sum_abs_d"]
     sum_abs_c = acc["sum_abs_c"]
+    sum_abs_gtang = acc["sum_abs_gtang"]
     sum_t = acc["sum_t"]
     sum_t2 = acc["sum_t2"]
 
     sum_sq_d += np.sum(diff_d**2, axis=0)
     sum_sq_c += np.sum(diff_c**2, axis=0)
+    sum_sq_gtang += np.sum(diff_gtang**2, axis=0)
     sum_abs_d += np.sum(np.abs(diff_d), axis=0)
     sum_abs_c += np.sum(np.abs(diff_c), axis=0)
+    sum_abs_gtang += np.sum(np.abs(diff_gtang), axis=0)
     sum_t += np.sum(y_b, axis=0)
     sum_t2 += np.sum(y_b**2, axis=0)
     n_b = int(y_b.shape[0])
     acc["n_elem"] += n_b
     acc["sum_sq_all_d"] += float(np.sum(diff_d**2))
     acc["sum_sq_all_c"] += float(np.sum(diff_c**2))
+    acc["sum_sq_all_gtang"] += float(np.sum(diff_gtang**2))
     acc["sum_abs_all_d"] += float(np.sum(np.abs(diff_d)))
     acc["sum_abs_all_c"] += float(np.sum(np.abs(diff_c)))
+    acc["sum_abs_all_gtang"] += float(np.sum(np.abs(diff_gtang)))
     acc["sum_t_all"] += float(np.sum(y_b))
     acc["sum_t2_all"] += float(np.sum(y_b**2))
     acc["n_all"] += int(y_b.size)
@@ -598,20 +687,24 @@ def _accum_add_trial_errors(
 def _finalize_bucket_metrics(
     dof_names: List[str],
     acc: Dict[str, Any],
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     return _finalize_metrics(
         dof_names,
         acc["sum_sq_d"],
         acc["sum_sq_c"],
+        acc["sum_sq_gtang"],
         acc["sum_abs_d"],
         acc["sum_abs_c"],
+        acc["sum_abs_gtang"],
         acc["sum_t"],
         acc["sum_t2"],
         int(acc["n_elem"]),
         float(acc["sum_sq_all_d"]),
         float(acc["sum_sq_all_c"]),
+        float(acc["sum_sq_all_gtang"]),
         float(acc["sum_abs_all_d"]),
         float(acc["sum_abs_all_c"]),
+        float(acc["sum_abs_all_gtang"]),
         float(acc["sum_t_all"]),
         float(acc["sum_t2_all"]),
         int(acc["n_all"]),
@@ -633,19 +726,23 @@ def _finalize_metrics(
     dof_names: List[str],
     sum_sq_d: np.ndarray,
     sum_sq_c: np.ndarray,
+    sum_sq_gtang: np.ndarray,
     sum_abs_d: np.ndarray,
     sum_abs_c: np.ndarray,
+    sum_abs_gtang: np.ndarray,
     sum_t: np.ndarray,
     sum_t2: np.ndarray,
     n_elem: int,
     sum_sq_all_d: float,
     sum_sq_all_c: float,
+    sum_sq_all_gtang: float,
     sum_abs_all_d: float,
     sum_abs_all_c: float,
+    sum_abs_all_gtang: float,
     sum_t_all: float,
     sum_t2_all: float,
     n_all: int,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     n_ch = len(dof_names)
 
     def finalize(
@@ -681,7 +778,8 @@ def _finalize_metrics(
 
     met_d = finalize(sum_sq_d, sum_abs_d, sum_sq_all_d, sum_abs_all_d)
     met_c = finalize(sum_sq_c, sum_abs_c, sum_sq_all_c, sum_abs_all_c)
-    return met_d, met_c
+    met_gtang = finalize(sum_sq_gtang, sum_abs_gtang, sum_sq_all_gtang, sum_abs_all_gtang)
+    return met_d, met_c, met_gtang
 
 
 def _run_full_trial_comparison(
@@ -706,8 +804,9 @@ def _run_full_trial_comparison(
     ik_input_normalize: bool,
     target_sample_rate_hz: Optional[float],
     rollout_decimate_step: int,
-) -> Tuple[Dict[str, Any], Dict[str, Any], int, int, Dict[str, Any]]:
-    """Returns (met_direct, met_cascade, n_trials_used, n_frames, per_loc_condition)."""
+    loc_bucket_map: Optional[Dict[Tuple[str, str, str], str]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], int, int, Dict[str, Any]]:
+    """Returns (met_direct, met_cascade, met_ik_from_gt_angles, n_trials_used, n_frames, per_loc_condition)."""
     n_ch = len(dof_names)
     overall = _trial_error_accumulators(n_ch)
     bucket_accs: Dict[str, Dict[str, Any]] = {}
@@ -786,41 +885,62 @@ def _run_full_trial_comparison(
             cascade_velocity_lowpass=cascade_velocity_lowpass,
             ik_input_normalize=ik_input_normalize,
         )
+        pred_gtang = infer_ik_moments_from_gt_angles_full_sequence(
+            ik_model,
+            pos23,
+            time_1d,
+            ik_stats,
+            side_ik_indices,
+            device,
+            eval_side,
+            pipeline_lpf_apply=apply_lpf,
+            pipeline_lpf_cutoff_hz=lpf_hz,
+            pipeline_lpf_order=lpf_order,
+            cascade_velocity_lowpass=cascade_velocity_lowpass,
+            ik_input_normalize=ik_input_normalize,
+        )
 
         fin = (
             np.isfinite(pred_d).all(axis=1)
             & np.isfinite(pred_c).all(axis=1)
+            & np.isfinite(pred_gtang).all(axis=1)
             & np.isfinite(y_gt).all(axis=1)
         )
         if not np.any(fin):
             continue
         pred_d = pred_d[fin]
         pred_c = pred_c[fin]
+        pred_gtang = pred_gtang[fin]
         y_b = y_gt[fin]
 
         diff_d = pred_d.astype(np.float64) - y_b.astype(np.float64)
         diff_c = pred_c.astype(np.float64) - y_b.astype(np.float64)
-        _accum_add_trial_errors(overall, diff_d, diff_c, y_b)
-        bk = _classify_loc_bucket(ref[1], ref[2])
+        diff_gtang = pred_gtang.astype(np.float64) - y_b.astype(np.float64)
+        _accum_add_trial_errors(overall, diff_d, diff_c, diff_gtang, y_b)
+        bk = _classify_loc_bucket(ref[0], ref[1], ref[2], loc_map=loc_bucket_map)
         if bk not in bucket_accs:
             bucket_accs[bk] = _trial_error_accumulators(n_ch)
-        _accum_add_trial_errors(bucket_accs[bk], diff_d, diff_c, y_b)
+        _accum_add_trial_errors(bucket_accs[bk], diff_d, diff_c, diff_gtang, y_b)
 
     n_trials_ok = int(overall["n_trials"])
     n_elem = int(overall["n_elem"])
-    met_d, met_c = _finalize_metrics(
+    met_d, met_c, met_gtang = _finalize_metrics(
         dof_names,
         overall["sum_sq_d"],
         overall["sum_sq_c"],
+        overall["sum_sq_gtang"],
         overall["sum_abs_d"],
         overall["sum_abs_c"],
+        overall["sum_abs_gtang"],
         overall["sum_t"],
         overall["sum_t2"],
         n_elem,
         float(overall["sum_sq_all_d"]),
         float(overall["sum_sq_all_c"]),
+        float(overall["sum_sq_all_gtang"]),
         float(overall["sum_abs_all_d"]),
         float(overall["sum_abs_all_c"]),
+        float(overall["sum_abs_all_gtang"]),
         float(overall["sum_t_all"]),
         float(overall["sum_t2_all"]),
         int(overall["n_all"]),
@@ -831,16 +951,17 @@ def _run_full_trial_comparison(
         acc = bucket_accs[bk]
         if int(acc["n_elem"]) == 0:
             continue
-        bd, bc = _finalize_bucket_metrics(dof_names, acc)
+        bd, bc, bgt = _finalize_bucket_metrics(dof_names, acc)
         per_loc[bk] = {
             "description": LOC_BUCKET_LEGEND.get(bk, ""),
             "n_trials": int(acc["n_trials"]),
             "n_frames_per_channel": int(acc["n_elem"]),
             "direct_imu_to_moment": bd,
             "cascade_imu_angle_then_ik_moment": bc,
+            "ik_moment_from_gt_angles": bgt,
         }
 
-    return met_d, met_c, n_trials_ok, n_elem, per_loc
+    return met_d, met_c, met_gtang, n_trials_ok, n_elem, per_loc
 
 
 def _fs_safe_segment(name: str) -> str:
@@ -1422,6 +1543,16 @@ def main() -> None:
             "Default off to match IK training data semantics."
         ),
     )
+    p.add_argument(
+        "--loc-ascent-descent-map",
+        type=str,
+        default=None,
+        help=(
+            "Optional JSON mapping (e.g., jinwoo_epic_ascent_descent_mapping.json) "
+            "used to split per_loc_condition into SA/SD and RA/RD via explicit "
+            "(subject, condition, trial) labels."
+        ),
+    )
     args = p.parse_args()
 
     set_global_seed(args.seed)
@@ -1646,7 +1777,14 @@ def main() -> None:
         f"{'on' if args.cascade_velocity_lowpass else 'off'}"
     )
 
-    met_d, met_c, n_trials_ok, n_frames, per_loc = _run_full_trial_comparison(
+    loc_bucket_map = _load_ascent_descent_mapping(args.loc_ascent_descent_map)
+    if args.loc_ascent_descent_map:
+        print(
+            f"[V4] Loaded explicit loc ascent/descent mapping entries: {len(loc_bucket_map):,} "
+            f"from {Path(args.loc_ascent_descent_map).resolve()}"
+        )
+
+    met_d, met_c, met_gtang, n_trials_ok, n_frames, per_loc = _run_full_trial_comparison(
         m_direct,
         m_angle,
         ik_model,
@@ -1667,6 +1805,7 @@ def main() -> None:
         ik_input_normalize=ik_input_normalize,
         target_sample_rate_hz=imu_tgt_sr,
         rollout_decimate_step=imu_rollout_step,
+        loc_bucket_map=loc_bucket_map,
     )
 
     summary = {
@@ -1707,7 +1846,13 @@ def main() -> None:
         },
         "direct_imu_to_moment": met_d,
         "cascade_imu_angle_then_ik_moment": met_c,
+        "ik_moment_from_gt_angles": met_gtang,
         "loc_bucket_legend": LOC_BUCKET_LEGEND,
+        "loc_ascent_descent_map": (
+            str(Path(args.loc_ascent_descent_map).resolve())
+            if args.loc_ascent_descent_map
+            else None
+        ),
         "per_loc_condition": per_loc,
     }
 
@@ -1752,50 +1897,68 @@ def main() -> None:
     with open(out_dir / "comparison.json", "w") as f:
         json.dump(summary, f, indent=2)
 
-    print(f"\n{'='*70}\nRESULTS V4 full-trial (moment RMSE / R²)\n{'='*70}")
+    print(f"\n{'='*96}\nRESULTS V4 full-trial (moment RMSE / R²)\n{'='*96}")
     print(f"Trials with ≥1 valid frame: {n_trials_ok:,}  |  frames summed: {n_frames:,}")
-    print(f"{'DOF':<22s}  {'RMSE dir':>10s}  {'R² dir':>8s}  {'RMSE cas':>10s}  {'R² cas':>8s}")
-    print("-" * 70)
-    for a, b in zip(met_d["per_channel"], met_c["per_channel"]):
-        print(
-            f"{a['name']:<22s}  {a['rmse']:10.5f}  {a['r2']:8.4f}  {b['rmse']:10.5f}  {b['r2']:8.4f}"
-        )
-    od, oc = met_d["overall"], met_c["overall"]
-    print("-" * 70)
     print(
-        f"{'OVERALL':<22s}  {od['rmse']:10.5f}  {od['r2']:8.4f}  {oc['rmse']:10.5f}  {oc['r2']:8.4f}"
+        f"{'DOF':<22s}  {'RMSE dir':>10s}  {'R² dir':>8s}  {'RMSE cas':>10s}  {'R² cas':>8s}  "
+        f"{'RMSE gt-ang':>12s}  {'R² gt-ang':>10s}"
+    )
+    print("-" * 96)
+    for a, b, g in zip(met_d["per_channel"], met_c["per_channel"], met_gtang["per_channel"]):
+        print(
+            f"{a['name']:<22s}  {a['rmse']:10.5f}  {a['r2']:8.4f}  {b['rmse']:10.5f}  {b['r2']:8.4f}  "
+            f"{g['rmse']:12.5f}  {g['r2']:10.4f}"
+        )
+    od, oc, og = met_d["overall"], met_c["overall"], met_gtang["overall"]
+    print("-" * 96)
+    print(
+        f"{'OVERALL':<22s}  {od['rmse']:10.5f}  {od['r2']:8.4f}  {oc['rmse']:10.5f}  {oc['r2']:8.4f}  "
+        f"{og['rmse']:12.5f}  {og['r2']:10.4f}"
     )
     if per_loc:
-        print(f"{'='*70}\nPer loc. condition (overall RMSE N·m/kg, same GT)\n{'='*70}")
-        print(f"{'Bucket':<10s}  {'trials':>7s}  {'frames':>9s}  {'RMSE dir':>10s}  {'R² dir':>8s}  {'RMSE cas':>10s}  {'R² cas':>8s}")
-        print("-" * 70)
+        print(f"{'='*120}\nPer loc. condition (overall RMSE N·m/kg, same GT)\n{'='*120}")
+        print(
+            f"{'Bucket':<10s}  {'trials':>7s}  {'frames':>9s}  "
+            f"{'RMSE dir':>10s}  {'R² dir':>8s}  {'RMSE cas':>10s}  {'R² cas':>8s}  "
+            f"{'RMSE gt-ang':>12s}  {'R² gt-ang':>10s}"
+        )
+        print("-" * 120)
         for bk in sorted(per_loc.keys()):
             pl = per_loc[bk]
             d_o = pl["direct_imu_to_moment"]["overall"]
             c_o = pl["cascade_imu_angle_then_ik_moment"]["overall"]
+            g_o = pl["ik_moment_from_gt_angles"]["overall"]
             print(
                 f"{bk:<10s}  {pl['n_trials']:7d}  {pl['n_frames_per_channel']:9d}  "
-                f"{d_o['rmse']:10.5f}  {d_o['r2']:8.4f}  {c_o['rmse']:10.5f}  {c_o['r2']:8.4f}"
+                f"{d_o['rmse']:10.5f}  {d_o['r2']:8.4f}  {c_o['rmse']:10.5f}  {c_o['r2']:8.4f}  "
+                f"{g_o['rmse']:12.5f}  {g_o['r2']:10.4f}"
             )
-        print(f"{'='*70}\nPer loc. condition (per-joint RMSE / R²)\n{'='*70}")
+        print(f"{'='*96}\nPer loc. condition (per-joint RMSE / R²)\n{'='*96}")
         for bk in sorted(per_loc.keys()):
             pl = per_loc[bk]
             print(
                 f"[{bk}] trials={pl['n_trials']}  frames/ch={pl['n_frames_per_channel']}"
             )
-            print(f"{'DOF':<22s}  {'RMSE dir':>10s}  {'R² dir':>8s}  {'RMSE cas':>10s}  {'R² cas':>8s}")
-            print("-" * 70)
+            print(
+                f"{'DOF':<22s}  {'RMSE dir':>10s}  {'R² dir':>8s}  {'RMSE cas':>10s}  {'R² cas':>8s}  "
+                f"{'RMSE gt-ang':>12s}  {'R² gt-ang':>10s}"
+            )
+            print("-" * 96)
             d_ch = pl["direct_imu_to_moment"]["per_channel"]
             c_ch = pl["cascade_imu_angle_then_ik_moment"]["per_channel"]
-            for dc, cc in zip(d_ch, c_ch):
+            g_ch = pl["ik_moment_from_gt_angles"]["per_channel"]
+            for dc, cc, gc in zip(d_ch, c_ch, g_ch):
                 print(
-                    f"{dc['name']:<22s}  {dc['rmse']:10.5f}  {dc['r2']:8.4f}  {cc['rmse']:10.5f}  {cc['r2']:8.4f}"
+                    f"{dc['name']:<22s}  {dc['rmse']:10.5f}  {dc['r2']:8.4f}  {cc['rmse']:10.5f}  {cc['r2']:8.4f}  "
+                    f"{gc['rmse']:12.5f}  {gc['r2']:10.4f}"
                 )
-            print("-" * 70)
+            print("-" * 96)
             d_o = pl["direct_imu_to_moment"]["overall"]
             c_o = pl["cascade_imu_angle_then_ik_moment"]["overall"]
+            g_o = pl["ik_moment_from_gt_angles"]["overall"]
             print(
-                f"{'OVERALL':<22s}  {d_o['rmse']:10.5f}  {d_o['r2']:8.4f}  {c_o['rmse']:10.5f}  {c_o['r2']:8.4f}"
+                f"{'OVERALL':<22s}  {d_o['rmse']:10.5f}  {d_o['r2']:8.4f}  {c_o['rmse']:10.5f}  {c_o['r2']:8.4f}  "
+                f"{g_o['rmse']:12.5f}  {g_o['r2']:10.4f}"
             )
             print()
     print(f"{'='*70}\nSaved {out_dir / 'comparison.json'}")

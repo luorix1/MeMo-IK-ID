@@ -55,7 +55,7 @@ from dataset import (
     find_trial_dirs,
     extract_subject_id,
 )
-from model import TCN
+from model import TCN, TransformerMoment, GaussianDiffusion1D  # noqa: F401 — all used via load_model
 from training_utils import set_global_seed
 
 # Re-use all non-main utilities from test.py to avoid duplication.

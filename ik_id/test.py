@@ -40,7 +40,7 @@ from dataset import (
     find_trial_dirs,
     extract_subject_id,
 )
-from model import TCN
+from model import TCN, TransformerMoment, GaussianDiffusion1D
 from training_utils import set_global_seed
 
 try:
@@ -105,14 +105,40 @@ def load_model(
 ) -> Tuple[Any, Any, Any, int, Any, Any, str, str, str, Optional[bool]]:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     cfg = ckpt["model_config"]
-    model = TCN(
-        n_input_channels=cfg["n_input_channels"],
-        n_output_channels=cfg["n_output_channels"],
-        hidden_channels=cfg["hidden_channels"],
-        n_blocks=cfg["n_blocks"],
-        kernel_size=cfg["kernel_size"],
-        dropout=cfg["dropout"],
-    )
+    model_type = cfg.get("model_type", "tcn")
+    if model_type == "transformer":
+        model = TransformerMoment(
+            n_input_channels=cfg["n_input_channels"],
+            n_output_channels=cfg["n_output_channels"],
+            d_model=cfg["d_model"],
+            n_heads=cfg["n_heads"],
+            n_layers=cfg["n_layers"],
+            d_ff=cfg["d_ff"],
+            dropout=cfg["dropout"],
+        )
+    elif model_type == "diffusion":
+        model = GaussianDiffusion1D(
+            n_input_channels=cfg["n_input_channels"],
+            n_output_channels=cfg["n_output_channels"],
+            d_model=cfg["d_model"],
+            n_heads=cfg["n_heads"],
+            n_layers=cfg["n_layers"],
+            d_ff=cfg["d_ff"],
+            dropout=cfg["dropout"],
+            n_timesteps=cfg.get("n_timesteps", 1000),
+            schedule=cfg.get("schedule", "cosine"),
+            predict_epsilon=cfg.get("predict_epsilon", True),
+            n_inference_steps=cfg.get("n_inference_steps", 50),
+        )
+    else:
+        model = TCN(
+            n_input_channels=cfg["n_input_channels"],
+            n_output_channels=cfg["n_output_channels"],
+            hidden_channels=cfg["hidden_channels"],
+            n_blocks=cfg["n_blocks"],
+            kernel_size=cfg["kernel_size"],
+            dropout=cfg["dropout"],
+        )
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
     model.eval()

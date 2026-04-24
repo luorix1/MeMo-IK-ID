@@ -61,7 +61,7 @@ from dataset import (
     extract_subject_id,
     find_trial_dirs,
 )
-from model import TCN
+from model import TCN, TransformerMoment, GaussianDiffusion1D
 from training_utils import MomentLoss, evaluate, set_global_seed, train_one_epoch
 
 try:
@@ -142,6 +142,45 @@ def plot_sample_prediction(
 
 
 # ---------------------------------------------------------------------------
+# Diffusion training loop
+# ---------------------------------------------------------------------------
+
+def train_one_epoch_diffusion(
+    model: "GaussianDiffusion1D",
+    loader: Any,
+    optimizer: optim.Optimizer,
+    device: str,
+    grad_clip: float = 1.0,
+    input_noise_std: float = 0.0,
+) -> float:
+    """
+    Training epoch for GaussianDiffusion1D.
+
+    Unlike the standard epoch which calls ``model(x)`` and ``criterion(pred, y)``,
+    diffusion training randomly samples a timestep and calls ``model.p_losses(y, x)``.
+    Input noise augmentation (iid Gaussian on x) is still supported.
+    Smoothness regularisation and angle-jitter are skipped because the
+    diffusion process already acts as a form of noise regularisation.
+    """
+    model.train()
+    running_loss = 0.0
+    n_batches = 0
+    for x, y in loader:
+        x, y = x.to(device), y.to(device)
+        if input_noise_std > 0:
+            x = x + torch.randn_like(x) * input_noise_std
+        loss = model.p_losses(y, x)
+        optimizer.zero_grad()
+        loss.backward()
+        if grad_clip > 0:
+            nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        optimizer.step()
+        running_loss += loss.item()
+        n_batches += 1
+    return running_loss / max(n_batches, 1)
+
+
+# ---------------------------------------------------------------------------
 # Checkpoint helper
 # ---------------------------------------------------------------------------
 
@@ -158,20 +197,50 @@ def _save_checkpoint(
 ) -> None:
     # Keep checkpoint metadata self-contained so eval scripts can reconstruct
     # preprocessing and indexing behavior without relying on CLI defaults.
-    torch.save({
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "train_loss": train_loss,
-        "val_loss": val_loss,
-        "model_config": {
+    model_type = getattr(args, "model_type", "tcn")
+    if model_type == "transformer":
+        arch_cfg = {
+            "model_type": "transformer",
+            "n_input_channels": model.n_input_channels,
+            "n_output_channels": model.n_output_channels,
+            "d_model": args.d_model,
+            "n_heads": args.n_heads,
+            "n_layers": args.n_layers,
+            "d_ff": args.d_ff,
+            "dropout": args.dropout,
+        }
+    elif model_type == "diffusion":
+        arch_cfg = {
+            "model_type": "diffusion",
+            "n_input_channels": model.n_input_channels,
+            "n_output_channels": model.n_output_channels,
+            "d_model": args.d_model,
+            "n_heads": args.n_heads,
+            "n_layers": args.n_layers,
+            "d_ff": args.d_ff,
+            "dropout": args.dropout,
+            "n_timesteps": args.n_diffusion_timesteps,
+            "schedule": args.diffusion_schedule,
+            "predict_epsilon": bool(args.diffusion_predict_epsilon),
+            "n_inference_steps": args.n_inference_steps,
+        }
+    else:
+        arch_cfg = {
+            "model_type": "tcn",
             "n_input_channels": model.n_input_channels,
             "n_output_channels": model.n_output_channels,
             "hidden_channels": args.hidden_channels,
             "n_blocks": args.n_blocks,
             "kernel_size": args.kernel_size,
             "dropout": args.dropout,
-        },
+        }
+    torch.save({
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "train_loss": train_loss,
+        "val_loss": val_loss,
+        "model_config": arch_cfg,
         "normalization": dataset.get_stats(),
         "dof_names": dof_names,
         "window_size": args.window_size,
@@ -238,10 +307,51 @@ def main() -> None:
                         help="Order for velocity LPF. Default: same as --lowpass-order.")
 
     # ---- Model ----
+    parser.add_argument(
+        "--model-type", type=str, default="tcn", choices=["tcn", "transformer", "diffusion"],
+        help="Model architecture: 'tcn' (causal, streaming-friendly) or 'transformer' "
+             "(bidirectional, offline, higher accuracy ceiling). Default: tcn.",
+    )
+    # ---- TCN-specific ----
     parser.add_argument("--hidden-channels", type=int, default=80)
     parser.add_argument("--n-blocks", type=int, default=5)
     parser.add_argument("--kernel-size", type=int, default=5)
     parser.add_argument("--dropout", type=float, default=0.1)
+    # ---- Transformer-specific ----
+    parser.add_argument(
+        "--d-model", type=int, default=256,
+        help="[transformer] Internal embedding dimension. Must be divisible by --n-heads. Default: 256.",
+    )
+    parser.add_argument(
+        "--n-heads", type=int, default=8,
+        help="[transformer] Number of self-attention heads. Default: 8.",
+    )
+    parser.add_argument(
+        "--n-layers", type=int, default=6,
+        help="[transformer] Number of stacked encoder blocks. Default: 6.",
+    )
+    parser.add_argument(
+        "--d-ff", type=int, default=1024,
+        help="[transformer/diffusion] Feed-forward hidden dimension inside each block. Default: 1024.",
+    )
+    # ---- Diffusion-specific ----
+    parser.add_argument(
+        "--n-diffusion-timesteps", type=int, default=1000,
+        help="[diffusion] Total DDPM timesteps T. Default: 1000.",
+    )
+    parser.add_argument(
+        "--diffusion-schedule", type=str, default="cosine", choices=["linear", "cosine"],
+        help="[diffusion] Beta schedule. Default: cosine.",
+    )
+    parser.add_argument(
+        "--diffusion-predict-epsilon", action="store_true", default=True,
+        help="[diffusion] Predict noise ε (default). Use --no-diffusion-predict-epsilon to predict x0.",
+    )
+    parser.add_argument("--no-diffusion-predict-epsilon", dest="diffusion_predict_epsilon", action="store_false")
+    parser.add_argument(
+        "--n-inference-steps", type=int, default=50,
+        help="[diffusion] DDIM steps at inference. Default: 50.",
+    )
     parser.add_argument("--input-mode", type=str, default="lower_limb",
                         choices=["full", "lower_limb", "sagittal", "sagittal_hip_flexion",
                                  "sagittal_knee", "sagittal_ankle"])
@@ -505,16 +615,67 @@ def main() -> None:
     # ---- Model ----
     n_in = train_ds.n_input_channels
     n_out = train_ds.n_output_channels
-    model = TCN(
-        n_input_channels=n_in, n_output_channels=n_out,
-        hidden_channels=args.hidden_channels, n_blocks=args.n_blocks,
-        kernel_size=args.kernel_size, dropout=args.dropout,
-    ).to(args.device)
 
-    n_params = sum(p.numel() for p in model.parameters())
-    print(f"\nModel: TCN  |  params: {n_params:,}  |  in={n_in}  out={n_out}")
-    print(f"  hidden={args.hidden_channels}  blocks={args.n_blocks}  "
-          f"kernel={args.kernel_size}  dropout={args.dropout}")
+    if args.model_type == "transformer":
+        if args.d_model % args.n_heads != 0:
+            raise ValueError(
+                f"--d-model ({args.d_model}) must be divisible by --n-heads ({args.n_heads})."
+            )
+        model = TransformerMoment(
+            n_input_channels=n_in,
+            n_output_channels=n_out,
+            d_model=args.d_model,
+            n_heads=args.n_heads,
+            n_layers=args.n_layers,
+            d_ff=args.d_ff,
+            dropout=args.dropout,
+        ).to(args.device)
+        n_params = sum(p.numel() for p in model.parameters())
+        print(f"\nModel: TransformerMoment  |  params: {n_params:,}  |  in={n_in}  out={n_out}")
+        print(f"  d_model={args.d_model}  n_heads={args.n_heads}  n_layers={args.n_layers}  "
+              f"d_ff={args.d_ff}  dropout={args.dropout}")
+        print("  [bidirectional — not suitable for real-time streaming]")
+    elif args.model_type == "diffusion":
+        if args.d_model % args.n_heads != 0:
+            raise ValueError(
+                f"--d-model ({args.d_model}) must be divisible by --n-heads ({args.n_heads})."
+            )
+        model = GaussianDiffusion1D(
+            n_input_channels=n_in,
+            n_output_channels=n_out,
+            d_model=args.d_model,
+            n_heads=args.n_heads,
+            n_layers=args.n_layers,
+            d_ff=args.d_ff,
+            dropout=args.dropout,
+            n_timesteps=args.n_diffusion_timesteps,
+            schedule=args.diffusion_schedule,
+            predict_epsilon=args.diffusion_predict_epsilon,
+            n_inference_steps=args.n_inference_steps,
+        ).to(args.device)
+        n_params = sum(p.numel() for p in model.parameters())
+        print(f"\nModel: GaussianDiffusion1D  |  params: {n_params:,}  |  in={n_in}  out={n_out}")
+        print(f"  d_model={args.d_model}  n_heads={args.n_heads}  n_layers={args.n_layers}  "
+              f"d_ff={args.d_ff}  dropout={args.dropout}")
+        print(f"  timesteps={args.n_diffusion_timesteps}  schedule={args.diffusion_schedule}  "
+              f"predict_epsilon={args.diffusion_predict_epsilon}  ddim_steps={args.n_inference_steps}")
+        print("  [offline — DDIM inference is not real-time suitable]")
+    else:
+        model = TCN(
+            n_input_channels=n_in, n_output_channels=n_out,
+            hidden_channels=args.hidden_channels, n_blocks=args.n_blocks,
+            kernel_size=args.kernel_size, dropout=args.dropout,
+        ).to(args.device)
+        n_params = sum(p.numel() for p in model.parameters())
+        rf = model.receptive_field
+        print(f"\nModel: TCN  |  params: {n_params:,}  |  in={n_in}  out={n_out}")
+        print(f"  hidden={args.hidden_channels}  blocks={args.n_blocks}  "
+              f"kernel={args.kernel_size}  dropout={args.dropout}")
+        print(f"  receptive_field={rf} samples  (window={args.window_size})")
+        if rf > args.window_size:
+            print(f"  WARNING: RF ({rf}) > window_size ({args.window_size}). "
+                  f"Deep blocks see only zero-padding during training.")
+
     print(f"  device={args.device}")
     print(f"  input_mode={args.input_mode}  ({n_in} channels)")
     print(f"  output_mode={args.output_mode}  ({n_out} moments)")
@@ -598,19 +759,28 @@ def main() -> None:
           f"lr={args.lr}  window={args.window_size}")
     print(f"{'='*70}")
 
+    _is_diffusion = isinstance(model, GaussianDiffusion1D)
+
     for epoch in range(args.epochs):
         last_epoch_idx = epoch
         ep_start = time.time()
-        train_loss = train_one_epoch(
-            model, train_loader, criterion, optimizer, args.device, epoch,
-            grad_clip=args.grad_clip,
-            input_noise_std=args.input_noise_std,
-            angle_jitter_std=args.angle_jitter_std,
-            n_position_channels=train_ds.n_input_channels // 2,
-            correlated_vel_noise=args.correlated_vel_noise,
-            sample_rate_hz=_sample_rate_hz,
-            smoothness_lambda=args.smoothness_lambda,
-        )
+        if _is_diffusion:
+            train_loss = train_one_epoch_diffusion(
+                model, train_loader, optimizer, args.device,
+                grad_clip=args.grad_clip,
+                input_noise_std=args.input_noise_std,
+            )
+        else:
+            train_loss = train_one_epoch(
+                model, train_loader, criterion, optimizer, args.device, epoch,
+                grad_clip=args.grad_clip,
+                input_noise_std=args.input_noise_std,
+                angle_jitter_std=args.angle_jitter_std,
+                n_position_channels=train_ds.n_input_channels // 2,
+                correlated_vel_noise=args.correlated_vel_noise,
+                sample_rate_hz=_sample_rate_hz,
+                smoothness_lambda=args.smoothness_lambda,
+            )
         train_losses.append(train_loss)
 
         log_parts = [f"Epoch {epoch+1:3d}/{args.epochs}  train_loss={train_loss:.6f}"]
