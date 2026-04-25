@@ -224,6 +224,7 @@ class DualKneeRunner:
         self._pm_wall_iso_start: Optional[str] = None
         self._loop_timing = {"n": 0, "sum_dt": 0.0, "min_dt": float("inf"), "max_dt": 0.0}
         self._last_tick: dict = {}
+        self._teleplot_block_error_printed = False
 
         self._gyro_z_to_rad_s = imu_gyro_z_to_rad_s_scale(cfg)
 
@@ -414,9 +415,19 @@ class DualKneeRunner:
         second_pulse_sent = False
         second_pulse_end: Optional[float] = None
 
-        gz_idx = int(self.cfg.get("teleplot_gyro_z_index", 5))
+        # IMU pack is length-6 [ax,ay,az,gx,gy,gz]; bad YAML would skip the whole Teleplot try (bare except).
+        _gzi = int(self.cfg.get("teleplot_gyro_z_index", 5))
+        gz_idx = min(5, max(0, _gzi))
+        if gz_idx != _gzi:
+            print(f"[WARN] teleplot_gyro_z_index={_gzi} out of range for 6-axis IMU; using {gz_idx}.")
+
         # Match ``test_knee/main_knee.py``: optional decimation of Teleplot sends only (not CAN / npz).
-        log_divider = max(1, int(self.cfg.get("teleplot_log_divider", 1)))
+        _ld = self.cfg.get("teleplot_log_divider", 1)
+        try:
+            log_divider = max(1, int(_ld))
+        except (TypeError, ValueError):
+            print(f"[WARN] teleplot_log_divider={_ld!r} invalid; using 1.")
+            log_divider = 1
 
         while True:
             _, _, k = rk.wait()
@@ -571,8 +582,12 @@ class DualKneeRunner:
                     self.tp.sendValue("knee_enc_vel_l", r.extra.get("knee_encoder_vel_l", 0.0))
                     self.tp.sendValue("K_l", r.extra.get("K_l", 0.0))
                     self.tp.sendValue("roop_time", step_end - step_start)
-                except Exception:
-                    pass
+                except Exception as e:
+                    if not self._teleplot_block_error_printed:
+                        self._teleplot_block_error_printed = True
+                        print(
+                            f"[Teleplot] send block error (further errors suppressed): {type(e).__name__}: {e}"
+                        )
 
             if self.current_idx < len(self.data_log["time"]):
                 self.data_log["time"][self.current_idx] = actual_time
