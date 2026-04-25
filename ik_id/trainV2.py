@@ -256,6 +256,48 @@ def _save_checkpoint(
 
 
 # ---------------------------------------------------------------------------
+# Run metadata (config + split)
+# ---------------------------------------------------------------------------
+
+
+def _write_run_metadata_json(
+    out_dir: Path,
+    args: argparse.Namespace,
+    *,
+    subjects: List[str],
+    train_subjects: List[str],
+    val_subjects: List[str],
+    test_subjects: List[str],
+    train_files: List[Any],
+    val_files: List[Any],
+    test_files_info: List[Any],
+    unilateral_paired_side_windows: bool,
+) -> None:
+    """Persist ``config.json`` and ``subject_split.json`` before the training loop."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _cfg_out = dict(vars(args))
+    _cfg_out["unilateral_paired_side_windows"] = unilateral_paired_side_windows
+    with open(out_dir / "config.json", "w", encoding="utf-8") as f:
+        json.dump(_cfg_out, f, indent=2)
+    with open(out_dir / "subject_split.json", "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "all_subjects": subjects,
+                "train_subjects": train_subjects,
+                "val_subjects": val_subjects,
+                "test_subjects": test_subjects,
+                "n_train_files": len(train_files),
+                "n_val_files": len(val_files),
+                "n_test_files": len(test_files_info),
+                "test_files": test_files_info,
+            },
+            f,
+            indent=2,
+        )
+    print(f"[Run metadata] wrote {out_dir / 'config.json'} and {out_dir / 'subject_split.json'}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -577,6 +619,18 @@ def main() -> None:
         )
 
     train_ds = _make_ds(train_files, args.stride, args.max_train_files)
+    _write_run_metadata_json(
+        out_dir,
+        args,
+        subjects=subjects,
+        train_subjects=train_subjects,
+        val_subjects=val_subjects,
+        test_subjects=test_subjects,
+        train_files=train_files,
+        val_files=val_files,
+        test_files_info=test_files_info,
+        unilateral_paired_side_windows=train_ds.unilateral_paired,
+    )
     train_loader = DataLoader(
         train_ds, batch_size=args.batch_size, shuffle=True,
         num_workers=args.num_workers, pin_memory=(args.device == "cuda"),
@@ -886,24 +940,6 @@ def main() -> None:
             print(f"  Best val R²:      {br2_s}")
     print(f"  Output: {out_dir}")
     print(f"{'='*70}")
-
-    # ---- Config / split JSON ----
-    _cfg_out = dict(vars(args))
-    _cfg_out["unilateral_paired_side_windows"] = train_ds.unilateral_paired
-    with open(out_dir / "config.json", "w") as f:
-        json.dump(_cfg_out, f, indent=2)
-
-    with open(out_dir / "subject_split.json", "w") as f:
-        json.dump({
-            "all_subjects": subjects,
-            "train_subjects": train_subjects,
-            "val_subjects": val_subjects,
-            "test_subjects": test_subjects,
-            "n_train_files": len(train_files),
-            "n_val_files": len(val_files),
-            "n_test_files": len(test_files_info),
-            "test_files": test_files_info,
-        }, f, indent=2)
 
     if wandb_run is not None:
         wandb.finish()
