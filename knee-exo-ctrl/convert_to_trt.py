@@ -31,6 +31,15 @@ Precision
 * ``--precision fp16``  — recommended for Jetson Orin/Xavier (~2× speedup,
   minimal accuracy loss for gait moments)
 
+Jetson / TRT build OOM
+----------------------
+If you see ``Cuda Runtime (out of memory)`` or ``NvMapMemAllocInternalTagged … error 12``
+even for tiny allocations, the GPU has **no free VRAM** (desktop compositor, another
+process, or a stale CUDA context).  Try: close other GPU apps; reboot; then rebuild
+with a **smaller** workspace, e.g. ``--workspace-gb 0.25`` or ``--workspace-gb 0.125``.
+The default workspace is kept modest for edge devices; increase only on a clean
+desktop GPU if the builder reports tactic timeouts.
+
 Examples
 --------
   # Basic: TCN knee model, FP16
@@ -53,6 +62,7 @@ Examples
 from __future__ import annotations
 
 import argparse
+import gc
 import os
 import struct
 import sys
@@ -156,7 +166,8 @@ def _export_to_onnx(
     dynamic: bool,
 ) -> None:
     model.eval()
-    dummy = torch.zeros(1, n_in, seq_len, dtype=torch.float32)
+    model.cpu()
+    dummy = torch.zeros(1, n_in, seq_len, dtype=torch.float32, device="cpu")
     dynamic_axes: Optional[Dict[str, Dict[int, str]]] = None
     if dynamic:
         dynamic_axes = {
@@ -188,6 +199,17 @@ def _trt_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _release_cuda_before_trt_build() -> None:
+    """Best-effort: drop PyTorch CUDA caches so TRT has a clean pool on Jetson."""
+    gc.collect()
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+    except Exception:
+        pass
 
 
 def _build_trt_engine(
@@ -250,7 +272,11 @@ def _build_trt_engine(
         if serialized is None:
             raise RuntimeError(
                 "TensorRT engine build failed (build_serialized_network returned None). "
-                "Check TRT logs for details."
+                "TRT logs usually show Cuda OOM or NvMap errors when the GPU has no free "
+                "memory. Free VRAM (close apps using the GPU, reboot the Jetson), then "
+                "retry with a smaller builder workspace, e.g. "
+                "`--workspace-gb 0.25` or `--workspace-gb 0.125`. "
+                "See script docstring section 'Jetson / TRT build OOM'."
             )
 
     trt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -371,8 +397,9 @@ def parse_args() -> argparse.Namespace:
         help="TRT engine precision.  fp16 is recommended for Jetson (default: fp16).",
     )
     p.add_argument(
-        "--workspace-gb", type=float, default=2.0,
-        help="TRT builder workspace memory in GB (default: 2.0).",
+        "--workspace-gb", type=float, default=0.5,
+        help="TRT builder workspace cap in GB (default: 0.5). Small IK/ID nets rarely "
+             "need more; on Jetson use 0.25–0.5 if build fails with CUDA OOM.",
     )
     p.add_argument(
         "--opset", type=int, default=17,
@@ -463,6 +490,7 @@ def main() -> None:
         sys.exit(1)
 
     print(f"\nBuilding TRT engine → {trt_path}")
+    _release_cuda_before_trt_build()
     _build_trt_engine(
         onnx_path=onnx_path,
         trt_path=trt_path,
