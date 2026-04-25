@@ -20,6 +20,8 @@ imu_gyro_filter_tau: 0.15
 trial_name: "trial_0423_knee_id_trt"
 exo_on: true
 trigger_type: "typing"
+# left | right | both — only listed leg(s) open CAN + getParameters/setTorque (see test_knee/main_knee.py).
+# TRT still batches R+L tensors; unused leg sees zeros from sensors; torque on unused leg is forced 0.
 side: "left"
 scale: 0.1
 torque_limit: 5.0

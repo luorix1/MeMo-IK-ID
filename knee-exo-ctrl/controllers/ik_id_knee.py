@@ -31,6 +31,7 @@ from run_bundle import (
     load_checkpoint_metadata,
     load_train_config,
     normalization_for_dof,
+    resolve_deploy_path,
     resolve_run_dir,
 )
 from utils.causal_butter import make_model_io_filter_bank
@@ -66,7 +67,7 @@ class IkIdKneeOnnxController(BaseController):
         except FileNotFoundError:
             train_cfg = {}
 
-        ckpt_path = Path(config.get("checkpoint_path") or (run_dir / "best_model.pt"))
+        ckpt_path = resolve_deploy_path(config, Path(config.get("checkpoint_path") or (run_dir / "best_model.pt")))
         if not ckpt_path.is_file():
             raise FileNotFoundError(
                 f"Need {ckpt_path} for normalization and IK indices. "
@@ -96,7 +97,7 @@ class IkIdKneeOnnxController(BaseController):
                 "Set frame_length to match the run or allow_window_mismatch: true (not recommended)."
             )
 
-        onnx_path = Path(config.get("onnx_path") or (run_dir / "best_model.onnx"))
+        onnx_path = resolve_deploy_path(config, Path(config.get("onnx_path") or (run_dir / "best_model.onnx")))
         if not onnx_path.is_file():
             raise FileNotFoundError(f"Missing ONNX model: {onnx_path}")
 
@@ -240,6 +241,8 @@ class IkIdKneeOnnxController(BaseController):
         tau_r = self.torque_sign_r * m_r * self.moment_mass_kg
         tau_l = self.torque_sign_l * m_l * self.moment_mass_kg
 
+        # ``torque_cmd_*`` / ``applied_*``: joint torque in N·m after ``moment_mass_kg`` only.
+        # ``main_knee`` then applies YAML ``scale`` and ``torque_limit`` → ``cmd_*`` / CAN (see ``exo_cmd_torque_*`` there).
         extra = {
             "knee_angle_r": float(q_r_m),
             "knee_angle_l": float(q_l_m),

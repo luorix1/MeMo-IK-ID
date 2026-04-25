@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict
 
+import numpy as np
+
 
 @dataclass
 class CausalButterworthLowpass:
@@ -64,3 +66,16 @@ def make_model_io_filter_bank(
         "m_r": f(),
         "m_l": f(),
     }
+
+
+def filter_series_1d(
+    x: np.ndarray,
+    fs_hz: float,
+    *,
+    cutoff_hz: float,
+    order: int,
+    enabled: bool,
+) -> np.ndarray:
+    """Apply a fresh causal Butterworth stream along ``x`` (one filter instance)."""
+    flt = CausalButterworthLowpass.create(fs_hz, cutoff_hz, order, enabled=enabled)
+    return np.array([flt.step(float(v)) for v in np.asarray(x, dtype=np.float64).reshape(-1)], dtype=np.float64)

@@ -7,7 +7,17 @@ converted to **rad** for the model) and configurable joint velocity (encoder or 
 trial ``.npz`` logs knee angles in **rad** and rates in **rad/s** to match training.
 ONNX / TRT providers are selected in YAML.
 
+Torque pipeline: model outputs **N·m/kg** → ``moment_mass_kg`` → controller ``applied_*`` /
+``extra["torque_cmd_*"]`` (**N·m, before YAML** ``scale`` **and** ``torque_limit``) → here
+``cmd_*`` = ``clamp(applied * scale, ±torque_limit)`` → ``setTorque`` (left leg negated for wiring).
+
 Hardware deps (Jetson + Teensy CAN stack) are loaded from ``jetson_teensy_python_path`` in the config.
+
+**Parity with** ``test_knee/main_knee.py`` **(same hardware loop, different model I/O):**
+CAN read/write order, ``Side`` gating, ``exo_on`` / ``scale`` / ``torque_limit``, GPIO pulse schedule,
+``RateKeeper.wait()`` tick ``k`` for Teleplot decimation, Teleplot channel names (plus IK/ID-only fields),
+and ``npz`` layout (angles as rad / gyros as rad/s here vs deg in legacy test logs). Mocap and Jetson
+Python path are YAML-driven here; optional ``use_gpio`` and per-``side`` CAN connect skip test defaults.
 """
 from __future__ import annotations
 
@@ -47,6 +57,7 @@ HIGHLIGHT_KEYS = {
     "controller_name",
     "exp_time_sec",
     "run_dir",
+    "side",
     "joint_velocity_source",
     "moment_mass_kg",
 }
@@ -250,20 +261,37 @@ class DualKneeRunner:
         configure_can_interface(channel=self.cfg["can_channel"])
         self.tp = Teleplot(self.cfg["teleplot_ip"], int(self.cfg["teleplot_port"]))
 
-        self.left_dev = Device(teleplot_ip=self.cfg["teleplot_ip"], teleplot_port=int(self.cfg["teleplot_port"]))
-        self.right_dev = Device(teleplot_ip=self.cfg["teleplot_ip"], teleplot_port=int(self.cfg["teleplot_port"]))
+        side = Side(self.cfg["side"])
+        use_left = side in (Side.LEFT, Side.BOTH)
+        use_right = side in (Side.RIGHT, Side.BOTH)
 
-        self.left_exo = JetsonCanInterface(
-            device_storage=self.left_dev, channel=self.cfg["can_channel"], teensy_id=self.cfg["teensy_id_left"]
-        )
-        self.right_exo = JetsonCanInterface(
-            device_storage=self.right_dev, channel=self.cfg["can_channel"], teensy_id=self.cfg["teensy_id_right"]
-        )
+        if use_left:
+            self.left_dev = Device(teleplot_ip=self.cfg["teleplot_ip"], teleplot_port=int(self.cfg["teleplot_port"]))
+            self.left_exo = JetsonCanInterface(
+                device_storage=self.left_dev,
+                channel=self.cfg["can_channel"],
+                teensy_id=self.cfg["teensy_id_left"],
+            )
+            print(f"Initializing Left Exoskeleton (ID {hex(int(self.cfg['teensy_id_left']))})...")
+            self.left_exo.connect()
+        else:
+            self.left_dev = None
+            self.left_exo = None
+            print("[Hardware] side does not include left; skipping left CAN device.")
 
-        print(f"Initializing Left Exoskeleton (ID {hex(int(self.cfg['teensy_id_left']))})...")
-        self.left_exo.connect()
-        print(f"Initializing Right Exoskeleton (ID {hex(int(self.cfg['teensy_id_right']))})...")
-        self.right_exo.connect()
+        if use_right:
+            self.right_dev = Device(teleplot_ip=self.cfg["teleplot_ip"], teleplot_port=int(self.cfg["teleplot_port"]))
+            self.right_exo = JetsonCanInterface(
+                device_storage=self.right_dev,
+                channel=self.cfg["can_channel"],
+                teensy_id=self.cfg["teensy_id_right"],
+            )
+            print(f"Initializing Right Exoskeleton (ID {hex(int(self.cfg['teensy_id_right']))})...")
+            self.right_exo.connect()
+        else:
+            self.right_dev = None
+            self.right_exo = None
+            print("[Hardware] side does not include right; skipping right CAN device.")
 
         # Causal Butterworth on model inputs/outputs (defaults from training ``config.json``).
         try:
@@ -293,8 +321,10 @@ class DualKneeRunner:
 
         try:
             t0 = time.perf_counter()
-            self.left_exo.set_reference_time(t0)
-            self.right_exo.set_reference_time(t0)
+            if self.left_exo is not None:
+                self.left_exo.set_reference_time(t0)
+            if self.right_exo is not None:
+                self.right_exo.set_reference_time(t0)
         except Exception:
             pass
 
@@ -385,9 +415,11 @@ class DualKneeRunner:
         second_pulse_end: Optional[float] = None
 
         gz_idx = int(self.cfg.get("teleplot_gyro_z_index", 5))
+        # Match ``test_knee/main_knee.py``: optional decimation of Teleplot sends only (not CAN / npz).
+        log_divider = max(1, int(self.cfg.get("teleplot_log_divider", 1)))
 
         while True:
-            _, _, _ = rk.wait()
+            _, _, k = rk.wait()
             loop_now = time.perf_counter()
             step_start = loop_now
             if prev_loop_time is None:
@@ -449,25 +481,21 @@ class DualKneeRunner:
             cmd_L = clamp(cmd_L, -tlim, tlim)
             cmd_R = clamp(cmd_R, -tlim, tlim)
 
-            actual_time = step_start - t0
-
-            self._last_tick = {
-                "t_s": float(actual_time),
-                "cmd_L": float(cmd_L),
-                "cmd_R": float(cmd_R),
-                "applied_L": float(r.applied_L),
-                "applied_R": float(r.applied_R),
-                "model_out_L": float(r.model_out_L),
-                "model_out_R": float(r.model_out_R),
-                "extra": json_safe_for_log(dict(r.extra)),
-            }
+            # ``r.extra["torque_cmd_*"]`` is N·m after mass only (``sign * m * moment_mass_kg``), *before*
+            # ``scale`` / ``torque_limit``. These fields match ``cmd_*`` in the trial ``.npz`` / Teleplot ``cmd_*``.
+            try:
+                r.extra["exo_cmd_torque_l_n_m"] = float(cmd_L)
+                r.extra["exo_cmd_torque_r_n_m"] = float(cmd_R)
+            except Exception:
+                pass
 
             if use_left:
                 self.left_exo.setTorque(-cmd_L)
             if use_right:
                 self.right_exo.setTorque(cmd_R)
 
-            now = actual_time
+            # Match ``test_knee/main_knee.py``: ``now`` / GPIO after ``setTorque``; wall time for log/post-mortem.
+            now = step_start - t0
 
             if self.gpio is not None:
                 if (not first_pulse_sent) and (now >= trial_start_sec + pulse_after_start):
@@ -500,9 +528,22 @@ class DualKneeRunner:
                         print(f"[GPIO] second pulse_end error: {e}")
                     second_pulse_end = None
 
+            actual_time = step_start - t0
+            self._last_tick = {
+                "t_s": float(actual_time),
+                "cmd_L": float(cmd_L),
+                "cmd_R": float(cmd_R),
+                "applied_L": float(r.applied_L),
+                "applied_R": float(r.applied_R),
+                "model_out_L": float(r.model_out_L),
+                "model_out_R": float(r.model_out_R),
+                "extra": json_safe_for_log(dict(r.extra)),
+            }
+
             step_end = time.perf_counter()
 
-            if self.tp is not None:
+            # Teleplot channel set aligned with ``test_knee/main_knee.py`` (plus IK/ID extras).
+            if self.tp is not None and (k % log_divider) == 0:
                 try:
                     gpio_state = float(self.gpio.state()) if self.gpio is not None else 0.0
                     self.tp.sendValue("cmd_R", cmd_R)
@@ -513,6 +554,11 @@ class DualKneeRunner:
                     self.tp.sendValue("knee_angle_l_u", r.extra.get("knee_angle_l_u", 0.0))
                     self.tp.sendValue("knee_angle_r", r.extra.get("knee_angle_r", 0.0))
                     self.tp.sendValue("knee_angle_l", r.extra.get("knee_angle_l", 0.0))
+                    self.tp.sendValue("Soft_ctrl_r", r.extra.get("Soft_ctrl_r", 0.0))
+                    self.tp.sendValue("Soft_ctrl_l", r.extra.get("Soft_ctrl_l", 0.0))
+                    self.tp.sendValue("assist_gate_r", r.extra.get("assist_gate_r", 0.0))
+                    self.tp.sendValue("assist_gate_l", r.extra.get("assist_gate_l", 0.0))
+                    self.tp.sendValue("state_l", r.extra.get("state_l", 0.0))
                     self.tp.sendValue("GPIO", gpio_state)
                     gz = self._gyro_z_to_rad_s
                     self.tp.sendValue("gyro_thigh_r", float(imu_R1[gz_idx]) * gz)
@@ -523,6 +569,7 @@ class DualKneeRunner:
                     self.tp.sendValue("moment_nm_kg_l", r.extra.get("moment_nm_kg_l", 0.0))
                     self.tp.sendValue("knee_enc_vel_r", r.extra.get("knee_encoder_vel_r", 0.0))
                     self.tp.sendValue("knee_enc_vel_l", r.extra.get("knee_encoder_vel_l", 0.0))
+                    self.tp.sendValue("K_l", r.extra.get("K_l", 0.0))
                     self.tp.sendValue("roop_time", step_end - step_start)
                 except Exception:
                     pass

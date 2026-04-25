@@ -13,6 +13,30 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 OS_KINETICS_ROOT = Path(__file__).resolve().parents[1]
+KNEE_EXO_CTRL_ROOT = Path(__file__).resolve().parent
+
+
+def resolve_deploy_path(cfg: Dict[str, Any], rel: Path | str) -> Path:
+    """
+    Resolve a relative deploy asset (``trt_path``, ``checkpoint_path``, ``onnx_path``) from YAML.
+
+    Tries, in order: as given if already a file; ``cwd``; directory of ``config_path``;
+    ``os_kinetics`` root; ``knee-exo-ctrl`` package root. Returns the first path that exists
+    as a file, or ``(config_dir / rel)`` resolved (for clear ``FileNotFoundError`` messages).
+    """
+    p = Path(rel).expanduser()
+    if p.is_file():
+        return p.resolve()
+    if p.is_absolute():
+        return p.resolve()
+    cfg_path = str(cfg.get("config_path") or "")
+    cfg_parent = Path(cfg_path).resolve().parent if cfg_path else Path.cwd()
+    roots = (Path.cwd(), cfg_parent, OS_KINETICS_ROOT, KNEE_EXO_CTRL_ROOT)
+    for root in roots:
+        cand = (root / p).resolve()
+        if cand.is_file():
+            return cand
+    return (cfg_parent / p).resolve()
 
 
 def resolve_run_dir(run_dir: Path | str) -> Path:

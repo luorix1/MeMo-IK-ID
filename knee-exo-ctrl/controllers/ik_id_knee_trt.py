@@ -24,6 +24,7 @@ from run_bundle import (
     load_checkpoint_metadata,
     load_train_config,
     normalization_for_dof,
+    resolve_deploy_path,
     resolve_run_dir,
 )
 from utils.causal_butter import make_model_io_filter_bank
@@ -57,7 +58,7 @@ class IkIdKneeTrtController(BaseController):
         except FileNotFoundError:
             train_cfg = {}
 
-        ckpt_path = Path(config.get("checkpoint_path") or (run_dir / "best_model.pt"))
+        ckpt_path = resolve_deploy_path(config, Path(config.get("checkpoint_path") or (run_dir / "best_model.pt")))
         if not ckpt_path.is_file():
             raise FileNotFoundError(
                 f"Need {ckpt_path} for normalization and IK indices."
@@ -84,7 +85,7 @@ class IkIdKneeTrtController(BaseController):
                 f"frame_length={self.frame_length} != training window_size={ckpt['window_size']}."
             )
 
-        trt_path = Path(config.get("trt_path") or (run_dir / "best_model.trt"))
+        trt_path = resolve_deploy_path(config, Path(config.get("trt_path") or (run_dir / "best_model.trt")))
         if not trt_path.is_file():
             raise FileNotFoundError(f"Missing TRT engine: {trt_path}")
 
@@ -241,6 +242,7 @@ class IkIdKneeTrtController(BaseController):
         tau_r = self.torque_sign_r * m_r * self.moment_mass_kg
         tau_l = self.torque_sign_l * m_l * self.moment_mass_kg
 
+        # ``torque_cmd_*`` / ``applied_*``: N·m after ``moment_mass_kg``; ``main_knee`` applies ``scale`` / limit → ``cmd_*``.
         extra = {
             "knee_angle_r": float(q_r_m),
             "knee_angle_l": float(q_l_m),
