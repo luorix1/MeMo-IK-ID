@@ -160,6 +160,11 @@ def clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
 
 
+def _teleplot_ip_is_loopback(ip: str) -> bool:
+    s = str(ip).strip().lower()
+    return s in ("127.0.0.1", "localhost", "::1")
+
+
 def imu_gyro_z_to_rad_s_scale(cfg: dict) -> float:
     """Scale raw IMU gyro z (per ``imu_gyro_z_units``) to rad/s for logging / teleplot."""
     units = str(cfg.get("imu_gyro_z_units", "deg_per_s")).lower().replace(" ", "")
@@ -331,6 +336,12 @@ class DualKneeRunner:
 
         print("\n--- Dual Knee Exo Control Loop Started (os_kinetics) ---")
         print(f"Teleplot: {self.cfg['teleplot_ip']}:{self.cfg['teleplot_port']}")
+        if _teleplot_ip_is_loopback(str(self.cfg.get("teleplot_ip", ""))):
+            print(
+                "[Teleplot] Destination is loopback — UDP only reaches processes on **this** machine. "
+                "If the Teleplot UI runs on another PC, set YAML `teleplot_ip` to that PC's LAN IP "
+                "(same subnet / routable) and allow UDP port 47269 inbound there."
+            )
         print(
             "[Data log] knee_angle_r/l = encoder rad; knee_angle_*_u_gyr = rad/s; "
             "gyro_thigh/shank_r = rad/s (per imu_gyro_z_units)."
@@ -371,6 +382,7 @@ class DualKneeRunner:
         try:
             if self.tp is not None:
                 self.tp.close()
+                self.tp = None
         except Exception:
             pass
 
