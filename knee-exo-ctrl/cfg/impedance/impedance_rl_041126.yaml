@@ -1,0 +1,31 @@
+trial_name: "Ilseung_LG_ep5_k"
+exo_on: true
+trigger_type: "typing"
+side: "left"
+scale: 1.0
+torque_limit: 18.0
+
+controller_name: "impedance_rl"
+trt_engine_path: "/home/exov3/Documents/Knee_CTRL/tcn_model/smile_k_041726_ep5.trt"
+frame_length: 95
+input_size: 3
+output_size: 2
+fs: 100
+exp_time_sec: 360
+
+thigh_gy_mean: 0.0020130237098783255
+thigh_gy_std: 1.6029597520828247
+shank_gy_mean: -1.5410309060825966e-05
+shank_gy_std: 2.1717915534973145
+knee_mean: -0.5672151446342468
+knee_std: 0.4193834364414215
+
+can_channel: "can0"
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+teensy_id_left: 256
+teensy_id_right: 512
+
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+GPIO_START_DELAY_SEC: 2.0

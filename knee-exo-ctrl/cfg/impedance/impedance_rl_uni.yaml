@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------
+# Unilateral Knee Impedance Controller — Config
+# Controller : impedance_rl_uni
+# Model input : (1, 2, 100)
+#   ch0 — knee encoder position (rad, sign-corrected per side)
+#   ch1 — knee angular velocity from IMU: shank_gz - thigh_gz (rad/s)
+# ---------------------------------------------------------------
+
+trial_name: "uni_test"
+exo_on: true
+trigger_type: "typing"
+
+# "right" or "left" — only this side sends torque; the other side gets 0
+side: "right"
+
+scale: 1.0
+torque_limit: 18.0
+
+controller_name: "impedance_rl_uni"
+trt_engine_path: "/home/exov3/Documents/Knee_CTRL/tcn_model/uni_model.trt"
+
+frame_length: 100
+input_size: 2
+output_size: 2
+fs: 100
+exp_time_sec: 360
+
+# ---- normalization stats (update with dataset mean/std before use) ----
+# ch0: knee encoder position (rad)
+encoder_mean: 0.0
+encoder_std: 1.0
+
+# ch1: knee angular velocity from IMU: shank_gz - thigh_gz (rad/s)
+knee_vel_mean: 0.0
+knee_vel_std: 1.0
+
+# ---- hardware ----
+can_channel: "can0"
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+teensy_id_left: 256
+teensy_id_right: 512
+
+# ---- GPIO sync pulses ----
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+GPIO_START_DELAY_SEC: 2.0

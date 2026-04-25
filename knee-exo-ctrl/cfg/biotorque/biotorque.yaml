@@ -1,0 +1,34 @@
+trial_name: "s2s_biotorque"
+exo_on: true
+trigger_type: "typing"
+side: "left"
+scale: 1.0
+mass: 75
+biotorque_gain: 0.4
+delay: 0.01
+torque_limit: 18.0
+
+controller_name: "biotorque"
+trt_engine_path: "/home/exov3/Documents/Knee_CTRL/tcn_model/s2s_controller_042326.trt"
+frame_length: 95
+input_size: 3
+output_size: 1
+fs: 100
+exp_time_sec: 360
+
+thigh_gy_mean: 0.055450295937000856
+thigh_gy_std: 1.1165396098811977
+shank_gy_mean: 0.006567863846775384
+shank_gy_std: 0.4670627184722982
+knee_mean: -0.7897140174236675
+knee_std: 0.6707084034037843
+
+can_channel: "can0"
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+teensy_id_left: 256
+teensy_id_right: 512
+
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+GPIO_START_DELAY_SEC: 2.0

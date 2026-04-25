@@ -1,19 +1,20 @@
-from __future__ import annotations
+from .dofc import DOFC
+from .test import TEST
+from .impedance_rl import impedance_rl
+from .impedance_rl_uni import impedance_rl_uni
+from .biotorque import biotorque
 
-from typing import Any, Dict, Type
 
-from .base import BaseController
-from .ik_id_knee import IkIdKneeOnnxController
-from .ik_id_knee_trt import IkIdKneeTrtController
-
-REGISTRY: Dict[str, Type[BaseController]] = {
-    IkIdKneeOnnxController.name: IkIdKneeOnnxController,
-    IkIdKneeTrtController.name: IkIdKneeTrtController,
+REGISTRY = {
+    DOFC.name: DOFC,
+    TEST.name: TEST,
+    impedance_rl.name: impedance_rl,
+    impedance_rl_uni.name: impedance_rl_uni,
+    biotorque.name: biotorque,
 }
 
-
-def build_controller(name: str, **kwargs: Any) -> BaseController:
+def build_controller(name: str, **kwargs):
     cls = REGISTRY.get(name)
     if cls is None:
-        raise ValueError(f"Unknown controller: {name}. Available: {sorted(REGISTRY)}")
+        raise ValueError(f"Unknown controller: {name}")
     return cls(**kwargs)

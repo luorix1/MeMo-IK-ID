@@ -1,0 +1,21 @@
+trial_name: "TEST"
+exo_on: False
+trigger_type: "typing"
+scale: 1.0
+torque_limit: 18.0
+
+controller_name: "TEST"
+side: "left"
+fs: 100
+exp_time_sec: 360
+
+
+can_channel: "can0"
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+teensy_id_left: 256
+teensy_id_right: 512
+
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+GPIO_START_DELAY_SEC: 2.0
