@@ -1,4 +1,6 @@
 # Deploy ``runs/0423_ik_id_knee_huber_noise`` via TensorRT engine.
+# **Left leg only** (``side: left``): ``main_knee`` opens CAN / ``setTorque`` on the left exo only;
+# right Teensy ID below is ignored at runtime. TRT still runs a 2-row batch; right inputs are zeros.
 #
 # Required in run_dir:
 #   - best_model.trt   (from knee-exo-ctrl/convert_and_smoketest_trt.sh)
@@ -20,8 +22,7 @@ imu_gyro_filter_tau: 0.15
 trial_name: "trial_0423_knee_id_trt"
 exo_on: true
 trigger_type: "typing"
-# left | right | both — only listed leg(s) open CAN + getParameters/setTorque (see test_knee/main_knee.py).
-# TRT still batches R+L tensors; unused leg sees zeros from sensors; torque on unused leg is forced 0.
+# left | right | both — this file pins **left** only.
 side: "left"
 scale: 0.1
 torque_limit: 5.0
@@ -49,7 +50,7 @@ teleplot_port: 47269
 teleplot_gyro_z_index: 5
 
 teensy_id_left: 256
-teensy_id_right: 512
+teensy_id_right: 512  # unused when side is left; keep for copying to a both-legs profile
 
 use_gpio: true
 GPIO_OUTPUT_PIN: 7

@@ -10,6 +10,7 @@ set -euo pipefail
 #
 # Notes:
 # - Run on Jetson / CUDA host with TensorRT installed.
+# - Python runs via ``conda run -n jinwoo-addbiomech`` when conda is available (override with ``--env``).
 # - Defaults are set for runs/0423_ik_id_knee_huber_noise.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -67,7 +68,14 @@ echo
 
 cd "${ROOT_DIR}"
 
-CONVERT_CMD=(python "${KNEE_DIR}/convert_to_trt.py"
+if command -v conda >/dev/null 2>&1; then
+  PYTHON=(conda run --no-capture-output -n "${ENV_NAME}" python)
+else
+  echo "[WARN] conda not on PATH; using plain python (expected env: ${ENV_NAME})"
+  PYTHON=(python)
+fi
+
+CONVERT_CMD=("${PYTHON[@]}" "${KNEE_DIR}/convert_to_trt.py"
   --checkpoint "${CHECKPOINT}"
   --onnx "${ONNX_PATH}"
   --output "${TRT_PATH}"
@@ -85,7 +93,7 @@ echo "[1/3] Converting PT/ONNX -> TRT ..."
 
 echo
 echo "[2/3] Smoke test: ONNX numerical verify ..."
-VERIFY_CMD=(python "${KNEE_DIR}/run_onnx.py" verify
+VERIFY_CMD=("${PYTHON[@]}" "${KNEE_DIR}/run_onnx.py" verify
   --onnx "${ONNX_PATH}"
   --checkpoint "${CHECKPOINT}"
 )
@@ -96,7 +104,7 @@ fi
 
 echo
 echo "[3/3] Smoke test: ONNX latency bench ..."
-BENCH_CMD=(python "${KNEE_DIR}/run_onnx.py" bench
+BENCH_CMD=("${PYTHON[@]}" "${KNEE_DIR}/run_onnx.py" bench
   --onnx "${ONNX_PATH}"
   --checkpoint "${CHECKPOINT}"
   --warmup 50
