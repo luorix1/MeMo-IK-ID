@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Convert knee ONNX/PT model to TRT and run smoke tests.
+# Convert knee ONNX/PT model to TRT and smoke-test the **serialized .trt** engine
+# (numeric vs PyTorch + GPU latency), not ONNX Runtime alone.
 #
 # Usage:
 #   bash knee-exo-ctrl/convert_and_smoketest_trt.sh
@@ -22,7 +23,7 @@ ONNX_PATH="${KNEE_DIR}/best_model_0423_knee.onnx"
 TRT_PATH="${KNEE_DIR}/best_model_0423_knee.trt"
 SEQ_LEN=""
 PRECISION="fp16"
-WORKSPACE_GB="2.0"
+WORKSPACE_GB="0.5"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -82,7 +83,6 @@ CONVERT_CMD=("${PYTHON[@]}" "${KNEE_DIR}/convert_to_trt.py"
   --precision "${PRECISION}"
   --workspace-gb "${WORKSPACE_GB}"
   --keep-onnx
-  --verify
 )
 if [[ -n "${SEQ_LEN}" ]]; then
   CONVERT_CMD+=(--seq-len "${SEQ_LEN}")
@@ -92,28 +92,28 @@ echo "[1/3] Converting PT/ONNX -> TRT ..."
 "${CONVERT_CMD[@]}"
 
 echo
-echo "[2/3] Smoke test: ONNX numerical verify ..."
-VERIFY_CMD=("${PYTHON[@]}" "${KNEE_DIR}/run_onnx.py" verify
-  --onnx "${ONNX_PATH}"
+echo "[2/3] Smoke test: serialized TRT vs PyTorch ..."
+TRT_VERIFY_CMD=("${PYTHON[@]}" "${KNEE_DIR}/run_trt.py" verify
+  --trt "${TRT_PATH}"
   --checkpoint "${CHECKPOINT}"
 )
 if [[ -n "${SEQ_LEN}" ]]; then
-  VERIFY_CMD+=(--seq-len "${SEQ_LEN}")
+  TRT_VERIFY_CMD+=(--seq-len "${SEQ_LEN}")
 fi
-"${VERIFY_CMD[@]}"
+"${TRT_VERIFY_CMD[@]}"
 
 echo
-echo "[3/3] Smoke test: ONNX latency bench ..."
-BENCH_CMD=("${PYTHON[@]}" "${KNEE_DIR}/run_onnx.py" bench
-  --onnx "${ONNX_PATH}"
+echo "[3/3] Smoke test: TRT GPU latency bench ..."
+TRT_BENCH_CMD=("${PYTHON[@]}" "${KNEE_DIR}/run_trt.py" bench
+  --trt "${TRT_PATH}"
   --checkpoint "${CHECKPOINT}"
   --warmup 50
   --n-reps 200
 )
 if [[ -n "${SEQ_LEN}" ]]; then
-  BENCH_CMD+=(--seq-len "${SEQ_LEN}")
+  TRT_BENCH_CMD+=(--seq-len "${SEQ_LEN}")
 fi
-"${BENCH_CMD[@]}"
+"${TRT_BENCH_CMD[@]}"
 
 echo
 echo "Done."
