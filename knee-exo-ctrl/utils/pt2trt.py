@@ -1,17 +1,26 @@
 """
 pt2trt.py  —  PyTorch → ONNX → TensorRT conversion for knee-exo-ctrl TCN models.
 
-Usage (from the repo root):
-    python utils/pt2trt.py --pt <path/to/model.pt> [options]
+Supports checkpoints saved by the os_kinetics training pipeline, which store:
+  - model_state_dict  : TCN weights
+  - model_config      : architecture hyper-parameters
+  - window_size       : sequence length used during training
+
+The TRT engine produced matches what TRTWorkerUni expects:
+  input  shape : (1, n_input_channels, window_size)
+  output shape : (1, n_output_channels)   ← last timestep of TCN output
+
+Usage (from knee-exo-ctrl root or anywhere):
+    python utils/pt2trt.py --pt /path/to/best_model.pt [options]
 
 Examples:
-    # FP32, output .trt next to the .pt file, config from default YAML
-    python utils/pt2trt.py --pt /path/to/uni_model.pt
+    # FP32, .trt written next to the .pt file
+    python utils/pt2trt.py --pt /path/to/best_model.pt
 
-    # FP16 with an explicit output path and a custom config
-    python utils/pt2trt.py --pt /path/to/uni_model.pt \\
-                           --trt /path/to/uni_model.trt \\
-                           --cfg cfg/cascade_0425.yaml \\
+    # FP16, explicit output path, custom YAML for window_size override
+    python utils/pt2trt.py --pt /path/to/best_model.pt \\
+                           --trt /path/to/model.trt    \\
+                           --cfg cfg/cascade_0425.yaml  \\
                            --fp16
 """
 
@@ -20,30 +29,55 @@ import os
 import sys
 
 import torch
+import torch.nn as nn
 import tensorrt as trt
 import yaml
 
 # ---------------------------------------------------------------------------
-# Resolve paths relative to the repo root so the script works from anywhere.
+# Locate model.py: it lives one directory above knee-exo-ctrl (the repo root).
 # ---------------------------------------------------------------------------
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(REPO_ROOT, "tcn_model"))
+_SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))       # .../knee-exo-ctrl/utils
+_CTRL_ROOT   = os.path.dirname(_SCRIPT_DIR)                      # .../knee-exo-ctrl
+_PARENT_ROOT = os.path.dirname(_CTRL_ROOT)                       # .../MeMo-IK-ID  (has model.py)
 
-from TCN_Header_Model import TCNModel  # noqa: E402  (import after sys.path patch)
+sys.path.insert(0, _PARENT_ROOT)
+
+try:
+    from model import TCN  # noqa: E402
+except ImportError as e:
+    raise ImportError(
+        f"Could not import TCN from model.py. "
+        f"Expected model.py at: {_PARENT_ROOT}\n"
+        f"Original error: {e}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wrapper: slice last timestep so output matches TRTWorkerUni expectation.
+#   TCN forward : (B, C_in, T) → (B, C_out, T)
+#   Wrapper     : (B, C_in, T) → (B, C_out)
+# ---------------------------------------------------------------------------
+class _TCNLastStep(nn.Module):
+    def __init__(self, tcn: TCN) -> None:
+        super().__init__()
+        self.tcn = tcn
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.tcn(x)[:, :, -1]
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _parse_list(value: str) -> list:
-    """Parse a comma-separated string into a list of ints (e.g. '80,80,80')."""
-    return [int(v.strip()) for v in value.split(",")]
-
-
-def load_yaml(cfg_path: str) -> dict:
-    with open(cfg_path, "r") as f:
+def load_yaml(path: str) -> dict:
+    with open(path) as f:
         return yaml.safe_load(f)
+
+
+def load_checkpoint(pt_path: str) -> dict:
+    """Load checkpoint regardless of whether numpy globals are embedded."""
+    return torch.load(pt_path, map_location="cpu", weights_only=False)
 
 
 # ---------------------------------------------------------------------------
@@ -53,35 +87,55 @@ def load_yaml(cfg_path: str) -> dict:
 def pt_to_trt(
     pt_model_path: str,
     trt_engine_path: str,
-    hyperparam_config: dict,
+    window_size: int,
     fp16_mode: bool = False,
 ) -> None:
-    """Convert a .pt checkpoint to a TensorRT .trt engine via ONNX."""
-
-    input_size  = int(hyperparam_config["input_size"])
-    window_size = int(hyperparam_config["window_size"])
+    """Convert an os_kinetics TCN checkpoint to a TensorRT engine."""
 
     # ------------------------------------------------------------------
-    # 1. Load PyTorch model
+    # 1. Load checkpoint and extract components
     # ------------------------------------------------------------------
-    print(f"[INFO] Loading PyTorch model from: {pt_model_path}")
-    model = TCNModel(hyperparam_config).eval()
+    print(f"[INFO] Loading checkpoint: {pt_model_path}")
+    ckpt = load_checkpoint(pt_model_path)
 
-    # The checkpoint may embed numpy objects (e.g. saved with numpy 2.x while the
-    # runtime has numpy 1.x).  weights_only=False is safe here because this is a
-    # trusted, locally-generated training checkpoint.
-    state_dict = torch.load(pt_model_path, map_location="cpu", weights_only=False)
+    if "model_state_dict" not in ckpt:
+        raise KeyError(
+            "Expected 'model_state_dict' in checkpoint. "
+            f"Found keys: {list(ckpt.keys())}"
+        )
 
-    model.load_state_dict(state_dict)
-    model.cuda()
+    model_config = ckpt["model_config"]
+    print(f"[INFO] model_config from checkpoint: {model_config}")
+
+    # window_size: prefer checkpoint value, allow CLI override
+    ckpt_window = ckpt.get("window_size", None)
+    if ckpt_window is not None and ckpt_window != window_size:
+        print(
+            f"[INFO] Checkpoint window_size={ckpt_window} overrides "
+            f"supplied window_size={window_size}."
+        )
+        window_size = int(ckpt_window)
+    print(f"[INFO] window_size (sequence length): {window_size}")
+
+    n_input_channels  = model_config["n_input_channels"]
+    n_output_channels = model_config["n_output_channels"]
 
     # ------------------------------------------------------------------
-    # 2. Export to ONNX (dynamic batch axis)
+    # 2. Build model and load weights
     # ------------------------------------------------------------------
-    onnx_path = trt_engine_path.replace(".trt", ".onnx")
-    dummy_input = torch.randn(2, input_size, window_size, device="cuda")
+    tcn = TCN(**model_config).eval()
+    tcn.load_state_dict(ckpt["model_state_dict"])
+    model = _TCNLastStep(tcn).eval().cuda()
+    print(f"[INFO] Model built — parameters: {sum(p.numel() for p in tcn.parameters()):,}")
 
-    print(f"[INFO] Exporting ONNX model to: {onnx_path}")
+    # ------------------------------------------------------------------
+    # 3. Export to ONNX (static batch=1 to match TRTWorkerUni)
+    # ------------------------------------------------------------------
+    onnx_path   = trt_engine_path.replace(".trt", ".onnx")
+    in_shape    = (1, n_input_channels, window_size)
+    dummy_input = torch.randn(*in_shape, device="cuda")
+
+    print(f"[INFO] Exporting ONNX → {onnx_path}")
     with torch.no_grad():
         torch.onnx.export(
             model,
@@ -91,15 +145,11 @@ def pt_to_trt(
             output_names=["output"],
             opset_version=18,
             do_constant_folding=True,
-            dynamic_axes={
-                "input":  {0: "batch"},
-                "output": {0: "batch"},
-            },
         )
-    print(f"[INFO] ONNX model saved to: {onnx_path}")
+    print(f"[INFO] ONNX saved  — input {in_shape} → output (1, {n_output_channels})")
 
     # ------------------------------------------------------------------
-    # 3. Parse ONNX with TensorRT
+    # 4. Parse ONNX with TensorRT
     # ------------------------------------------------------------------
     logger  = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(logger)
@@ -109,18 +159,18 @@ def pt_to_trt(
     parser = trt.OnnxParser(network, logger)
 
     if not parser.parse_from_file(onnx_path):
-        print("[ERROR] Failed to parse ONNX model:")
+        print("[ERROR] ONNX parsing failed:")
         for i in range(parser.num_errors):
             print(f"  {parser.get_error(i)}")
         raise RuntimeError("ONNX model parsing failed.")
 
-    input_tensor  = network.get_input(0)
-    output_tensor = network.get_output(0)
-    print(f"[INFO] Network input  — name: {input_tensor.name},  shape: {input_tensor.shape}")
-    print(f"[INFO] Network output — name: {output_tensor.name}, shape: {output_tensor.shape}")
+    net_in  = network.get_input(0)
+    net_out = network.get_output(0)
+    print(f"[INFO] TRT network input  : {net_in.name}  shape={net_in.shape}")
+    print(f"[INFO] TRT network output : {net_out.name} shape={net_out.shape}")
 
     # ------------------------------------------------------------------
-    # 4. Builder config
+    # 5. Builder config  (static batch=1 — no dynamic profile needed)
     # ------------------------------------------------------------------
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30)  # 1 GiB
@@ -128,24 +178,14 @@ def pt_to_trt(
     if fp16_mode:
         if builder.platform_has_fast_fp16:
             config.set_flag(trt.BuilderFlag.FP16)
-            print("[INFO] Building engine in FP16 mode.")
+            print("[INFO] Building in FP16 mode.")
         else:
-            print("[WARNING] FP16 not supported on this platform — falling back to FP32.")
-
-    # Dynamic-batch optimization profile: batch 1 (min / opt) → 2 (max)
-    profile = builder.create_optimization_profile()
-    profile.set_shape(
-        input_tensor.name,
-        min=(1, input_size, window_size),
-        opt=(1, input_size, window_size),
-        max=(2, input_size, window_size),
-    )
-    config.add_optimization_profile(profile)
+            print("[WARNING] FP16 not supported on this platform — using FP32.")
 
     # ------------------------------------------------------------------
-    # 5. Build and serialize
+    # 6. Build and serialize
     # ------------------------------------------------------------------
-    print("[INFO] Building TensorRT engine (this may take a few minutes) …")
+    print("[INFO] Building TensorRT engine (may take several minutes) …")
     serialized_engine = builder.build_serialized_network(network, config)
 
     if serialized_engine is None:
@@ -155,7 +195,8 @@ def pt_to_trt(
     with open(trt_engine_path, "wb") as f:
         f.write(serialized_engine)
 
-    print(f"[SUCCESS] TensorRT engine saved: {trt_engine_path}")
+    print(f"[SUCCESS] TRT engine saved : {trt_engine_path}")
+    print(f"          Engine I/O       : {in_shape} → (1, {n_output_channels})")
 
 
 # ---------------------------------------------------------------------------
@@ -163,81 +204,55 @@ def pt_to_trt(
 # ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
-    default_cfg = os.path.join(REPO_ROOT, "cfg", "cascade_0425.yaml")
+    default_cfg = os.path.join(_CTRL_ROOT, "cfg", "cascade_0425.yaml")
 
     p = argparse.ArgumentParser(
-        description="Convert a TCN .pt checkpoint to a TensorRT .trt engine.",
+        description="Convert an os_kinetics TCN .pt checkpoint to a TensorRT engine.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
-    # Required
-    p.add_argument("--pt",  required=True, help="Path to the input .pt model file.")
-
-    # Optional — I/O paths
+    p.add_argument("--pt",  required=True, help="Path to the input .pt checkpoint.")
     p.add_argument(
-        "--trt",
-        default=None,
-        help="Path for the output .trt engine. Defaults to <pt_path>.trt",
+        "--trt", default=None,
+        help="Output .trt path. Defaults to <pt_path>.trt (replaces .pt extension).",
     )
     p.add_argument(
-        "--cfg",
-        default=default_cfg,
-        help="Path to the YAML config file (reads input_size / frame_length).",
+        "--cfg", default=default_cfg,
+        help="YAML config for fallback window_size (frame_length). "
+             "Ignored if checkpoint contains window_size.",
     )
-
-    # Build options
+    p.add_argument(
+        "--window-size", type=int, default=None,
+        help="Sequence length override. Checkpoint value takes precedence if present.",
+    )
     p.add_argument("--fp16", action="store_true", help="Build engine in FP16 mode.")
-
-    # TCN architecture overrides (rarely needed; the defaults match training configs)
-    p.add_argument("--num-channels", default="80,80,80,80,80",
-                   help="Comma-separated channel list per TCN block.")
-    p.add_argument("--kernel-size",  type=int, default=5)
-    p.add_argument("--num-layers",   type=int, default=2,
-                   help="Number of conv layers inside each TemporalBlock.")
-    p.add_argument("--dropout",      type=float, default=0.15)
-    p.add_argument("--dilations",    default="1,2,4,8,16",
-                   help="Comma-separated dilation per TCN block.")
-
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
 
-    # Resolve .trt output path
     pt_path  = os.path.abspath(args.pt)
-    trt_path = os.path.abspath(args.trt) if args.trt else pt_path.replace(".pt", ".trt")
+    trt_path = (
+        os.path.abspath(args.trt)
+        if args.trt
+        else pt_path.replace(".pt", ".trt")
+    )
 
-    # Load YAML config
-    cfg = load_yaml(args.cfg)
-    print(f"[INFO] Loaded config from: {args.cfg}")
-
-    # frame_length in YAML is the TCN window (sequence length)
-    window_size = int(cfg.get("frame_length", cfg.get("window_size", 100)))
-    input_size  = int(cfg.get("input_size",  2))
-    output_size = int(cfg.get("output_size", 2))
-
-    hyperparam_config = {
-        # Model I/O (from YAML)
-        "input_size":      input_size,
-        "output_size":     output_size,
-        "window_size":     window_size,
-        # TCN architecture (CLI overrides or defaults)
-        "num_channels":    _parse_list(args.num_channels),
-        "kernel_size":     args.kernel_size,
-        "number_of_layers": args.num_layers,
-        "dropout":         args.dropout,
-        "dilations":       _parse_list(args.dilations),
-    }
-
-    print("[INFO] Hyperparam config:")
-    for k, v in hyperparam_config.items():
-        print(f"       {k}: {v}")
+    # Resolve window_size: CLI → YAML → default 100
+    if args.window_size is not None:
+        window_size = args.window_size
+    elif os.path.isfile(args.cfg):
+        cfg = load_yaml(args.cfg)
+        window_size = int(cfg.get("frame_length", cfg.get("window_size", 100)))
+        print(f"[INFO] window_size={window_size} from config: {args.cfg}")
+    else:
+        window_size = 100
+        print(f"[INFO] Config not found — using default window_size={window_size}")
 
     pt_to_trt(
         pt_model_path=pt_path,
         trt_engine_path=trt_path,
-        hyperparam_config=hyperparam_config,
+        window_size=window_size,
         fp16_mode=args.fp16,
     )
 
