@@ -68,11 +68,14 @@ def pt_to_trt(
     model = TCNModel(hyperparam_config).eval()
 
     import numpy as np
+    import numpy.core.multiarray as _npcm
+    # numpy ≥2.0 moved multiarray to _core; 1.x uses core
+    _reconstruct = getattr(np, "_core", np.core).multiarray._reconstruct
     safe_globals = [
-        np._core.multiarray._reconstruct,
+        _reconstruct,
         np.ndarray,
         np.dtype,
-        np.core.multiarray.scalar,
+        _npcm.scalar,
     ]
     with torch.serialization.safe_globals(safe_globals):
         state_dict = torch.load(pt_model_path, map_location="cpu", weights_only=True)
