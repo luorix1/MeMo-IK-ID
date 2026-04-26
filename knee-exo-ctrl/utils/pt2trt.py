@@ -66,7 +66,17 @@ def pt_to_trt(
     # ------------------------------------------------------------------
     print(f"[INFO] Loading PyTorch model from: {pt_model_path}")
     model = TCNModel(hyperparam_config).eval()
-    state_dict = torch.load(pt_model_path, map_location="cpu", weights_only=True)
+
+    import numpy as np
+    safe_globals = [
+        np._core.multiarray._reconstruct,
+        np.ndarray,
+        np.dtype,
+        np.core.multiarray.scalar,
+    ]
+    with torch.serialization.safe_globals(safe_globals):
+        state_dict = torch.load(pt_model_path, map_location="cpu", weights_only=True)
+
     model.load_state_dict(state_dict)
     model.cuda()
 
