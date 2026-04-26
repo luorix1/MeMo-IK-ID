@@ -24,6 +24,23 @@ sys.path.insert(0, PROJECT_ROOT)
 from model import TCN  # noqa: E402
 
 
+def _select_scalar_from_output(y: np.ndarray) -> float:
+    """
+    Extract the scalar to compare with PT's last-step channel-0 prediction.
+
+    Supported output layouts:
+      - (1, 1)       -> scalar
+      - (1, 1, W)    -> take last timestep
+      - any shape    -> fallback to last flattened element
+    """
+    y = np.asarray(y, dtype=np.float32)
+    if y.ndim == 2 and y.shape[0] == 1 and y.shape[1] == 1:
+        return float(y[0, 0])
+    if y.ndim == 3 and y.shape[0] == 1 and y.shape[1] == 1:
+        return float(y[0, 0, -1])
+    return float(y.reshape(-1)[-1])
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Compare TRT vs PT outputs on sample inputs.")
     p.add_argument("--trt", required=True, help="Path to TensorRT engine (.trt)")
@@ -114,6 +131,7 @@ def run_trt(trt_path: str, x_np: np.ndarray) -> np.ndarray:
     in_name, out_name = _find_io_names(engine)
 
     outputs = []
+    printed_shape = False
     for x in x_np:
         xb = x[None, ...]  # (1,2,W)
         in_shape = tuple(xb.shape)
@@ -131,8 +149,11 @@ def run_trt(trt_path: str, x_np: np.ndarray) -> np.ndarray:
         context.set_tensor_address(out_name, int(d_out.data_ptr()))
         context.execute_async_v3(stream_handle=stream.cuda_stream)
         stream.synchronize()
-        y = d_out.detach().cpu().numpy().reshape(-1)[0]
-        outputs.append(y)
+        y_full = d_out.detach().cpu().numpy().copy()
+        if not printed_shape:
+            print(f"[INFO] TRT output tensor shape per sample: {y_full.shape}")
+            printed_shape = True
+        outputs.append(_select_scalar_from_output(y_full))
     return np.asarray(outputs, dtype=np.float32)
 
 
