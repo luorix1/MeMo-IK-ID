@@ -249,10 +249,13 @@ class CascadeUni(BaseController):
         # ---- post-process model output ----
         # model output is Nm/kg → multiply by mass → Nm, then apply torque_scale
         moment_raw = float(self.last_out[0]) * self.mass * self.torque_scale
-        moment_gated = moment_raw * self.assist_gate
+
+        # Keep assist_gate as a diagnostic signal (biotorque parity), but do not
+        # apply it to torque.
+        moment_cmd = moment_raw
 
         # torque LPF → rate limit → hard clamp
-        self.torque_filt = self._lpf(self.torque_filt, moment_gated, self.torque_filter_tau)
+        self.torque_filt = self._lpf(self.torque_filt, moment_cmd, self.torque_filter_tau)
         tau = self._rate_limit(self.torque_filt, self.prev_cmd, self.cmd_rate_max)
         tau = float(np.clip(tau, -self.torque_limit, self.torque_limit))
         self.prev_cmd = tau
@@ -272,7 +275,7 @@ class CascadeUni(BaseController):
                 "knee_angle":      float(self.knee_angle_filt),
                 "knee_vel_imu":    float(self.knee_vel_imu_filt),
                 "moment_raw":      float(moment_raw),
-                "moment_gated":    float(moment_gated),
+                "moment_cmd":      float(moment_cmd),
                 "assist_gate":     float(self.assist_gate),
                 "motion_score":    float(self.motion_score),
                 "state":           state_int,
