@@ -3,6 +3,7 @@ from .test import Test
 from .impedance_rl import ImpedanceRL
 from .impedance_rl_uni import ImpedanceRLUni
 from .biotorque import Biotorque
+from .cascade import CascadeUni
 
 
 REGISTRY = {
@@ -11,6 +12,7 @@ REGISTRY = {
     ImpedanceRL.name: ImpedanceRL,
     ImpedanceRLUni.name: ImpedanceRLUni,
     Biotorque.name: Biotorque,
+    CascadeUni.name: CascadeUni,
 }
 
 def build_controller(name: str, **kwargs):
