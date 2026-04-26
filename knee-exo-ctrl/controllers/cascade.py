@@ -37,11 +37,13 @@ class CascadeUni(BaseController):
         self.fs  = int(config["fs"])
         self.dt  = 1.0 / self.fs
 
-        # normalization stats (from training checkpoint)
-        self.knee_angle_mean = float(config["knee_angle_mean"])
-        self.knee_angle_std  = float(config["knee_angle_std"])
-        self.knee_vel_mean   = float(config["knee_vel_mean"])
-        self.knee_vel_std    = float(config["knee_vel_std"])
+        # Training run 0423_ik_id_knee_huber_noise used normalize=False.
+        # Inputs to the deployed model should therefore be raw (sign-corrected) values.
+        # Keep optional stats only for debug telemetry if provided in YAML.
+        self.knee_angle_mean = float(config.get("knee_angle_mean", 0.0))
+        self.knee_angle_std  = float(config.get("knee_angle_std", 1.0))
+        self.knee_vel_mean   = float(config.get("knee_vel_mean", 0.0))
+        self.knee_vel_std    = float(config.get("knee_vel_std", 1.0))
 
         # Model outputs Nm/kg (moments stored as N*m/kg in training dataset).
         # Multiply by subject mass to recover Nm, then by torque_scale for tuning.
@@ -228,10 +230,12 @@ class CascadeUni(BaseController):
         self.knee_u_enc_filt   = self._lpf(self.knee_u_enc_filt,   enc_vel_raw,      self.knee_filter_tau)
         self.knee_vel_imu_filt = self._lpf(self.knee_vel_imu_filt, knee_vel_imu_raw, self.imu_filter_tau)
 
-        # ---- build normalized model input ----
+        # ---- build model input (raw, sign-corrected; matches training normalize=False) ----
+        knee_angle_norm = self._normalize(encoder_raw, self.knee_angle_mean, self.knee_angle_std)
+        knee_vel_norm = self._normalize(knee_vel_imu_raw, self.knee_vel_mean, self.knee_vel_std)
         x_last = np.array([
-            self._normalize(encoder_raw,      self.knee_angle_mean, self.knee_angle_std),
-            self._normalize(knee_vel_imu_raw, self.knee_vel_mean,   self.knee_vel_std),
+            encoder_raw,
+            knee_vel_imu_raw,
         ], dtype=np.float32)
 
         seq = self.x.push_last(x_last)                                   # (2, T)
@@ -248,7 +252,8 @@ class CascadeUni(BaseController):
 
         # ---- post-process model output ----
         # model output is Nm/kg → multiply by mass → Nm, then apply torque_scale
-        moment_raw = float(self.last_out[0]) * self.mass * self.torque_scale
+        model_out_nmpkg = float(self.last_out[0])
+        moment_raw = model_out_nmpkg * self.mass * self.torque_scale
 
         # Keep assist_gate as a diagnostic signal (biotorque parity), but do not
         # apply it to torque.
@@ -274,6 +279,12 @@ class CascadeUni(BaseController):
                 "side":            self.side,
                 "knee_angle":      float(self.knee_angle_filt),
                 "knee_vel_imu":    float(self.knee_vel_imu_filt),
+                "model_in_knee_angle_raw": float(encoder_raw),
+                "model_in_knee_vel_raw": float(knee_vel_imu_raw),
+                # "norm" fields are debug-only references; model input uses raw fields.
+                "model_in_knee_angle_norm": float(knee_angle_norm),
+                "model_in_knee_vel_norm": float(knee_vel_norm),
+                "model_out_nmpkg": float(model_out_nmpkg),
                 "moment_raw":      float(moment_raw),
                 "moment_cmd":      float(moment_cmd),
                 "assist_gate":     float(self.assist_gate),
