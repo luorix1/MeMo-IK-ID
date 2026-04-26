@@ -43,7 +43,9 @@ class CascadeUni(BaseController):
         self.knee_vel_mean   = float(config["knee_vel_mean"])
         self.knee_vel_std    = float(config["knee_vel_std"])
 
-        # output scaling: model outputs Nm; multiply by torque_scale if needed
+        # Model outputs Nm/kg (moments stored as N*m/kg in training dataset).
+        # Multiply by subject mass to recover Nm, then by torque_scale for tuning.
+        self.mass         = float(config["mass"])
         self.torque_scale = float(config.get("torque_scale", 1.0))
         self.torque_limit = float(config.get("torque_limit", 20.0))
 
@@ -241,7 +243,8 @@ class CascadeUni(BaseController):
         self._try_put_latest(x)
 
         # ---- post-process model output ----
-        moment_raw = float(self.last_out[0]) * self.torque_scale
+        # model output is Nm/kg → multiply by mass → Nm, then apply torque_scale
+        moment_raw = float(self.last_out[0]) * self.mass * self.torque_scale
         moment_gated = moment_raw * self.assist_gate
 
         # torque LPF → rate limit → hard clamp
