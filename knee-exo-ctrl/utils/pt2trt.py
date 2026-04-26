@@ -67,18 +67,10 @@ def pt_to_trt(
     print(f"[INFO] Loading PyTorch model from: {pt_model_path}")
     model = TCNModel(hyperparam_config).eval()
 
-    import numpy as np
-    import numpy.core.multiarray as _npcm
-    # numpy ≥2.0 moved multiarray to _core; 1.x uses core
-    _reconstruct = getattr(np, "_core", np.core).multiarray._reconstruct
-    safe_globals = [
-        _reconstruct,
-        np.ndarray,
-        np.dtype,
-        _npcm.scalar,
-    ]
-    with torch.serialization.safe_globals(safe_globals):
-        state_dict = torch.load(pt_model_path, map_location="cpu", weights_only=True)
+    # The checkpoint may embed numpy objects (e.g. saved with numpy 2.x while the
+    # runtime has numpy 1.x).  weights_only=False is safe here because this is a
+    # trusted, locally-generated training checkpoint.
+    state_dict = torch.load(pt_model_path, map_location="cpu", weights_only=False)
 
     model.load_state_dict(state_dict)
     model.cuda()
