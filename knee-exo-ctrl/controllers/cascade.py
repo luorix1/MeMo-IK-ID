@@ -76,6 +76,7 @@ class CascadeUni(BaseController):
 
         # filtered states
         self.knee_angle_filt   = 0.0   # encoder angle (rad)
+        self.knee_u_enc_filt   = 0.0   # encoder-derived knee velocity (rad/s)
         self.knee_vel_imu_filt = 0.0   # IMU-based knee angular velocity (rad/s)
         self.torque_filt       = 0.0   # output torque (Nm)
 
@@ -209,19 +210,22 @@ class CascadeUni(BaseController):
     def step(self, s: Sensors) -> CtrlResult:
         # ---- raw sensor extraction (sign-corrected: both sides → right convention) ----
         if self.side == "right":
-            encoder_raw  = np.deg2rad(float(s.pos_R))
-            thigh_gz_raw = float(s.imu_R1[5])
-            shank_gz_raw = float(s.imu_R2[5])
+            encoder_raw     = np.deg2rad(float(s.pos_R))
+            enc_vel_raw     = np.deg2rad(float(s.vel_R))
+            thigh_gz_raw    = float(s.imu_R1[5])
+            shank_gz_raw    = float(s.imu_R2[5])
         else:
-            encoder_raw  = -np.deg2rad(float(s.pos_L))
-            thigh_gz_raw = -float(s.imu_L1[5])
-            shank_gz_raw = -float(s.imu_L2[5])
+            encoder_raw     = -np.deg2rad(float(s.pos_L))
+            enc_vel_raw     = -np.deg2rad(float(s.vel_L))
+            thigh_gz_raw    = -float(s.imu_L1[5])
+            shank_gz_raw    = -float(s.imu_L2[5])
 
         # knee angular velocity from IMUs: shank_gz − thigh_gz
         knee_vel_imu_raw = shank_gz_raw - thigh_gz_raw
 
         # ---- LPF for filtered telemetry / state display ----
         self.knee_angle_filt   = self._lpf(self.knee_angle_filt,   encoder_raw,      self.knee_filter_tau)
+        self.knee_u_enc_filt   = self._lpf(self.knee_u_enc_filt,   enc_vel_raw,      self.knee_filter_tau)
         self.knee_vel_imu_filt = self._lpf(self.knee_vel_imu_filt, knee_vel_imu_raw, self.imu_filter_tau)
 
         # ---- build normalized model input ----
@@ -272,11 +276,13 @@ class CascadeUni(BaseController):
                 "assist_gate":     float(self.assist_gate),
                 "motion_score":    float(self.motion_score),
                 "state":           state_int,
-                # bilateral aliases for logging / teleplot
+                # keys read by main_knee.py teleplot + data_log
                 "knee_angle_r":    float(self.knee_angle_filt) if self.side == "right" else 0.0,
                 "knee_angle_l":    float(self.knee_angle_filt) if self.side == "left"  else 0.0,
-                "knee_vel_imu_r":  float(self.knee_vel_imu_filt) if self.side == "right" else 0.0,
-                "knee_vel_imu_l":  float(self.knee_vel_imu_filt) if self.side == "left"  else 0.0,
+                "knee_angle_r_u":  float(self.knee_u_enc_filt) if self.side == "right" else 0.0,
+                "knee_angle_l_u":  float(self.knee_u_enc_filt) if self.side == "left"  else 0.0,
+                "knee_r_u_gyr":    float(self.knee_vel_imu_filt) if self.side == "right" else 0.0,
+                "knee_l_u_gyr":    float(self.knee_vel_imu_filt) if self.side == "left"  else 0.0,
                 "assist_gate_r":   float(self.assist_gate) if self.side == "right" else 0.0,
                 "assist_gate_l":   float(self.assist_gate) if self.side == "left"  else 0.0,
                 "state_r":         state_int if self.side == "right" else 0,
