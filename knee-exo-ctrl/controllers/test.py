@@ -2,7 +2,7 @@ import numpy as np
 from collections import deque
 from .base import BaseController, Sensors, CtrlResult
 
-class TEST(BaseController):
+class Test(BaseController):
     name = "TEST"
 
     def __init__(self, config: dict):

@@ -64,18 +64,18 @@ Controllers are registered by string name in `REGISTRY`. `build_controller(name,
 
 | `controller_name` | Class | File |
 |---|---|---|
-| `dofc_knee` | `impedance_rl` | `controllers/dofc_knee.py` |
-| `impedance_rl` | `impedance_rl` | `controllers/impedance_rl.py` |
-| `impedance_rl_uni` | `impedance_rl_uni` | `controllers/impedance_rl_uni.py` |
-| `biotorque` | `biotorque` | `controllers/biotorque.py` |
-| `test` | `TEST` | `controllers/test.py` |
+| `DOFC` | `DOFC` | `controllers/dofc.py` |
+| `impedance_rl` | `ImpedanceRL` | `controllers/impedance_rl.py` |
+| `impedance_rl_uni` | `ImpedanceRLUni` | `controllers/impedance_rl_uni.py` |
+| `biotorque` | `Biotorque` | `controllers/biotorque.py` |
+| `TEST` | `Test` | `controllers/test.py` |
 
 ---
 
 ### Available controllers
 
-#### `dofc_knee` — bilateral gait-phase damping controller
-Rule-based bilateral controller. Estimates gait phase (stance / swing) from IMU angular velocity and encoder angle thresholds with a minimum dwell time. Applies velocity-proportional damping torque with separate stance and swing gain scales. Smooth transitions between phases are handled by a first-order blend filter. No ML model.
+#### `DOFC` — bilateral differential oscillator controller
+Rule-based bilateral controller based on a differential oscillator feedback law: `τ = κ · sin(θ_R) − sin(θ_L)`, delayed by a configurable number of samples. Encoder positions are low-pass filtered before the sine transform. No ML model.
 
 #### `impedance_rl` — bilateral TCN impedance controller
 Bilateral version of the TCN impedance controller below. Runs a shared TRT inference worker for both legs simultaneously.

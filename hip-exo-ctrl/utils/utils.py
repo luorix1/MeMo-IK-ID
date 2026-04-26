@@ -1,22 +1,33 @@
-from __future__ import annotations
-
+# utils/utils.py
 import time
-from typing import Optional, Tuple
 
 
 class RateKeeper:
+    """Precision fixed-rate loop timer.
+
+    Busy-spins for the last ~50 µs to avoid OS sleep jitter.
+    Reports overrun and scheduled time so callers can log timing.
+    """
+
     def __init__(self, hz: float, catchup_cycles: int = 3, spin_ns: int = 50_000):
         self.period_ns = int(1e9 / float(hz))
-        self.next_ns: Optional[int] = None
+        self.next_ns = None
         self.tick = 0
         self.catchup_cycles = int(catchup_cycles)
         self.spin_ns = int(spin_ns)
 
-    def start(self) -> None:
+    def start(self):
         self.next_ns = time.perf_counter_ns()
 
-    def wait(self) -> Tuple[float, float, int]:
-        assert self.next_ns is not None
+    def wait(self):
+        """Advance one tick and block until the scheduled time.
+
+        Returns
+        -------
+        overrun_s : float   seconds past the deadline (0 if on time)
+        sched_s   : float   scheduled elapsed time in seconds
+        k         : int     tick index (0-based)
+        """
         self.next_ns += self.period_ns
         while True:
             now_ns = time.perf_counter_ns()
@@ -25,7 +36,7 @@ class RateKeeper:
                 late_cycles = (-dt_ns) // self.period_ns
                 if late_cycles > self.catchup_cycles:
                     self.next_ns += late_cycles * self.period_ns
-                    self.tick += int(late_cycles)
+                    self.tick += late_cycles
                 break
             if dt_ns > self.spin_ns:
                 time.sleep((dt_ns - self.spin_ns) / 1e9)

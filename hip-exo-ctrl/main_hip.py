@@ -1,72 +1,78 @@
-#!/usr/bin/env python3
+"""main_hip.py — Hip Exoskeleton Control Loop
+
+Usage
+-----
+    python main_hip.py cfg/hip_biotorque_default.yaml
+
+Hardware
+--------
+  Motors  : AK80-9 (TMotorV3) via epicpower_tmotorV3, CAN bus
+  IMUs    : ICM20948 (I2C) — pelvis, left thigh, right thigh
+  GPIO    : Jetson board pin 7 for sync pulses
+
+Sign convention (motor)
+-----------------------
+  LEFT  motor : flexion = positive torque / positive position
+  RIGHT motor : flexion = NEGATIVE (motor reads opposite sense), so we negate
+                position, velocity, and torque command before/after the motor.
+
+Config keys (YAML)
+------------------
+  See cfg/hip_biotorque_default.yaml for the full reference.
 """
-Dual-hip exoskeleton control (os_kinetics), mirroring ``knee-exo-ctrl``.
 
-Sensors:
-  * Pelvis IMU + left thigh + right thigh (6-vector each: accel xyz, gyro xyz).
-  * Pelvis is read from the device configured by ``pelvis_imu_teensy`` (``left`` | ``right``)
-    and ``pelvis_imu_which`` (1 or 2), defaulting to **left** Teensy **IMU2** (right keeps IMU1 = thigh only).
-  * Left / right thigh: ``IMU1`` on each leg Teensy (same layout as knee ``thigh`` = IMU1).
-
-Inference uses motor **encoder** hip angle and **joint_velocity_source**:
-  * ``imu_gyro_delta``: rate = LPF(−gyro_Y_thigh) − LPF(−gyro_Y_pelvis) per leg (rad/s after unit conversion).
-  * ``encoder``: motor velocity (deg/s → rad/s), same path as knee.
-
-Hardware deps load from ``jetson_teensy_python_path`` in the YAML.
-"""
-from __future__ import annotations
-
-import argparse
 import atexit
-import enum
 import gc
 import os
 import signal
 import sys
 import time
 import traceback
-from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
+import can
+import multiprocessing as mp
 import numpy as np
+import pandas as pd
 import yaml
 
-_PKG_ROOT = Path(__file__).resolve().parent
-if str(_PKG_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PKG_ROOT))
+from epicpower_tmotorV3.actuator_group import ActuatorGroup
+from epicpower_tmotorV3.tmotor_v3 import TMotorV3
+from Header_ICM20948_I2C_pcb2 import ICM20948_I2C_IMUs
 
 from controllers import build_controller
 from controllers.base import Sensors
-from utils.rate_keeper import RateKeeper
+from utils.gpio_control import GPIOControl
+from utils.Header_Mocap_trigger import Mocap_trigger
 from utils.teleplot import Teleplot
+from utils.utils import RateKeeper
 
-COLOR_GREEN = "\033[92m"
-COLOR_RESET = "\033[0m"
+COLOR_GREEN  = "\033[92m"
+COLOR_YELLOW = "\033[93m"
+COLOR_RESET  = "\033[0m"
 
 HIGHLIGHT_KEYS = {
-    "exo_on",
-    "scale",
-    "controller_name",
-    "exp_time_sec",
-    "run_dir",
-    "joint_velocity_source",
-    "moment_mass_kg",
-    "pelvis_imu_teensy",
+    "exo_on", "scale_factor", "controller_name",
+    "exp_time_sec", "mass", "desired_delay_ms",
 }
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Dual hip exoskeleton control (os_kinetics hip-exo-ctrl).")
-    p.add_argument("config", help="Path to YAML config file.")
-    return p.parse_args()
+# ======================================================================
+# Config helpers
+# ======================================================================
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Hip exoskeleton control loop.")
+    parser.add_argument("config", help="Path to YAML config file.")
+    return parser.parse_args()
 
 
-def load_config(config_path: str) -> dict:
-    with open(config_path, "r", encoding="utf-8") as f:
+def load_config(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     if not isinstance(cfg, dict):
         raise ValueError(f"Config must be a YAML mapping, got {type(cfg).__name__}")
-    cfg["config_path"] = os.path.abspath(config_path)
+    cfg["config_path"] = os.path.abspath(path)
     return cfg
 
 
@@ -80,421 +86,378 @@ def print_config(cfg: dict) -> None:
     input("\n==== Check Config ====\nHit Enter to continue...")
 
 
+# ======================================================================
+# Data log helpers
+# ======================================================================
 def build_data_log(cfg: dict) -> dict:
-    log_size = int(cfg["exp_time_sec"] * cfg["fs"])
+    n = int(cfg["exp_time_sec"] * cfg["fs"]) + int(5 * cfg["fs"])
+    f1 = lambda: np.full(n, np.nan, dtype=np.float32)
+    f6 = lambda: np.full((n, 6), np.nan, dtype=np.float32)
     return {
-        "time": np.zeros(log_size),
-        "hip_angle_r": np.zeros(log_size),
-        "hip_angle_l": np.zeros(log_size),
-        "hip_angle_r_u_gyr": np.zeros(log_size),
-        "hip_angle_l_u_gyr": np.zeros(log_size),
-        "gyro_neg_y_pelvis": np.zeros(log_size),
-        "gyro_neg_y_thigh_r": np.zeros(log_size),
-        "gyro_neg_y_thigh_l": np.zeros(log_size),
-        "cmd_L": np.zeros(log_size),
-        "cmd_R": np.zeros(log_size),
-        "GPIO": np.zeros(log_size),
+        "timestamp":        f1(),
+        "mtr_pos_L":        f1(), "mtr_pos_R":        f1(),
+        "mtr_vel_L":        f1(), "mtr_vel_R":        f1(),
+        "mtr_cmd_L":        f1(), "mtr_cmd_R":        f1(),
+        "actual_torque_L":  f1(), "actual_torque_R":  f1(),
+        "imu_P":            f6(), "imu_L":            f6(), "imu_R": f6(),
+        "model_output_L":   f1(), "model_output_R":   f1(),
+        "net_torque_L":     f1(), "net_torque_R":     f1(),
+        "bio_torque_L":     f1(), "bio_torque_R":     f1(),
+        "scaled_torque_L":  f1(), "scaled_torque_R":  f1(),
+        "delayed_torque_L": f1(), "delayed_torque_R": f1(),
+        "filtered_torque_L":f1(), "filtered_torque_R":f1(),
+        "gpio_output":      f1(),
     }
 
 
-class GPIOControl:
-    def __init__(self, pin: int):
-        import Jetson.GPIO as GPIO  # type: ignore
+def save_data(log: dict, cfg: dict, valid_len: int) -> None:
+    trial = cfg["trial_name"]
+    n = valid_len
+    if n == 0:
+        print("[save_data] No data collected — skipping.")
+        return
 
-        self._GPIO = GPIO
-        self.pin = int(pin)
-        self._state = 0
-        try:
-            GPIO.setwarnings(False)
-            GPIO.cleanup()
-        except Exception:
-            pass
-        GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(self.pin, GPIO.OUT, initial=GPIO.LOW)
+    t = log["timestamp"][:n]
+    t_rel = t - t[0]
 
-    def pulse_start(self) -> None:
-        self._GPIO.output(self.pin, self._GPIO.HIGH)
-        self._state = 1
+    # Motor
+    df_mtr = pd.DataFrame({
+        "time":      t_rel,
+        "mtr_pos_L": log["mtr_pos_L"][:n],
+        "mtr_pos_R": log["mtr_pos_R"][:n],
+        "mtr_vel_L": log["mtr_vel_L"][:n],
+        "mtr_vel_R": log["mtr_vel_R"][:n],
+        "gpio_output": log["gpio_output"][:n],
+    })
+    df_mtr.to_csv(f"{trial}_input_motor.csv", index=False)
+    print(f"Saved {trial}_input_motor.csv  {df_mtr.shape}")
 
-    def pulse_end(self) -> None:
-        self._GPIO.output(self.pin, self._GPIO.LOW)
-        self._state = 0
+    # IMU
+    imu_data = {"time": t_rel}
+    for key, prefix in [("imu_P", "Pelvis"), ("imu_L", "Thigh_L"), ("imu_R", "Thigh_R")]:
+        arr = log[key][:n, :]
+        for ci, ch in enumerate(["Acc_X", "Acc_Y", "Acc_Z", "Gyr_X", "Gyr_Y", "Gyr_Z"]):
+            imu_data[f"{prefix}_{ch}"] = arr[:, ci]
+    imu_data["gpio_output"] = log["gpio_output"][:n]
+    df_imu = pd.DataFrame(imu_data)
+    df_imu.to_csv(f"{trial}_input_imu.csv", index=False)
+    print(f"Saved {trial}_input_imu.csv  {df_imu.shape}")
 
-    def state(self) -> int:
-        return self._state
-
-    def close(self) -> None:
-        try:
-            self._GPIO.output(self.pin, self._GPIO.LOW)
-            self._GPIO.cleanup()
-        except Exception:
-            pass
-
-
-class Side(enum.Enum):
-    LEFT = "left"
-    RIGHT = "right"
-    BOTH = "both"
-
-
-def clamp(x: float, lo: float, hi: float) -> float:
-    return lo if x < lo else hi if x > hi else x
-
-
-def imu6_zeros() -> np.ndarray:
-    return np.zeros((6,), dtype=np.float32)
-
-
-def pack_imu6_from_device(dev, which: int) -> np.ndarray:
-    if which == 1:
-        a = dev.IMU1_accel_data[-1] if dev.IMU1_accel_data else (0.0, 0.0, 0.0)
-        g = dev.IMU1_gyro_data[-1] if dev.IMU1_gyro_data else (0.0, 0.0, 0.0)
-    else:
-        a = dev.IMU2_accel_data[-1] if dev.IMU2_accel_data else (0.0, 0.0, 0.0)
-        g = dev.IMU2_gyro_data[-1] if dev.IMU2_gyro_data else (0.0, 0.0, 0.0)
-    return np.asarray([a[0], a[1], a[2], g[0], g[1], g[2]], dtype=np.float32)
+    # Torque pipeline
+    torque_keys = [
+        "model_output_L", "model_output_R",
+        "net_torque_L",   "net_torque_R",
+        "bio_torque_L",   "bio_torque_R",
+        "scaled_torque_L","scaled_torque_R",
+        "delayed_torque_L","delayed_torque_R",
+        "filtered_torque_L","filtered_torque_R",
+        "mtr_cmd_L", "mtr_cmd_R",
+        "actual_torque_L", "actual_torque_R",
+        "gpio_output",
+    ]
+    df_torque = pd.DataFrame({"time": t_rel, **{k: log[k][:n] for k in torque_keys}})
+    df_torque.to_csv(f"{trial}_output_torque.csv", index=False)
+    print(f"Saved {trial}_output_torque.csv  {df_torque.shape}")
 
 
-def latest_pos_vel(dev) -> Tuple[float, float]:
-    pos = float(dev.Motor_pos_data[-1]) if dev.Motor_pos_data else 0.0
-    vel = float(dev.Motor_vel_data[-1]) if dev.Motor_vel_data else 0.0
-    return pos, vel
-
-
+# ======================================================================
+# Runner
+# ======================================================================
 class DualHipRunner:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.data_log = build_data_log(cfg)
-        self.left_dev = None
-        self.right_dev = None
-        self.left_exo = None
-        self.right_exo = None
-        self.controller = None
         self.current_idx = 0
-        self.gpio = None
-        self.mocap_trigger = None
+
+        self.mtr_comms: Optional[ActuatorGroup] = None
+        self.imus: Optional[ICM20948_I2C_IMUs] = None
+        self.bus: Optional[can.Bus] = None
+        self.notifier: Optional[can.Notifier] = None
+        self.gpio: Optional[GPIOControl] = None
         self.tp: Optional[Teleplot] = None
+        self.controller = None
+        self.mocap_trigger = None
 
-        use_gpio = bool(cfg.get("use_gpio", True))
-        if use_gpio:
+    # ------------------------------------------------------------------
+    def setup(self):
+        # Mocap trigger client (connect early so it's ready)
+        if self.cfg["trigger_type"] == "mocap":
             try:
-                self.gpio = GPIOControl(int(cfg["GPIO_OUTPUT_PIN"]))
+                self.mocap_trigger = Mocap_trigger(
+                    server_ip=self.cfg["mocap_server_ip"],
+                    port_number=self.cfg["mocap_server_port"],
+                )
+                self.mocap_trigger.start_client()
             except Exception as e:
-                print(f"[GPIO] disabled ({e}); continuing without sync pulses.")
-                self.gpio = None
+                print(f"[Mocap] start_client error: {e}")
 
-    def setup(self) -> None:
-        jetson_path = self.cfg.get("jetson_teensy_python_path")
-        if jetson_path:
-            jp = str(jetson_path)
-            if jp not in sys.path:
-                sys.path.insert(0, jp)
+        # GPIO
+        self.gpio = GPIOControl(self.cfg["gpio_output_pin"])
 
-        from Jetson_Teensy import Device, JetsonCanInterface, configure_can_interface  # type: ignore
+        # Teleplot
+        self.tp = Teleplot(self.cfg["teleplot_ip"], self.cfg["teleplot_port"])
 
-        if self.cfg.get("trigger_type") == "mocap":
-            mocap_mod = self.cfg.get("mocap_trigger_module")
-            if mocap_mod:
-                try:
-                    mod = __import__(str(mocap_mod), fromlist=["Mocap_trigger"])
-                    Mocap_trigger = getattr(mod, "Mocap_trigger")
-                    self.mocap_trigger = Mocap_trigger(
-                        server_ip=str(self.cfg.get("mocap_server_ip", "127.0.0.1")),
-                        port_number=int(self.cfg.get("mocap_port", 10)),
-                    )
-                    self.mocap_trigger.start_client()
-                except Exception as e:
-                    print(f"[Mocap] start_client error: {e}")
+        # Motors
+        _ = input("Press Enter to initialize motors: ")
+        cid_L = self.cfg["can_id_L"]
+        cid_R = self.cfg["can_id_R"]
+        mtr_type = self.cfg["motor_type"]
+        init_list = [TMotorV3(cid_L, mtr_type), TMotorV3(cid_R, mtr_type)]
+        self.mtr_comms = ActuatorGroup(init_list)
 
-        configure_can_interface(channel=self.cfg["can_channel"])
-        self.tp = Teleplot(self.cfg["teleplot_ip"], int(self.cfg["teleplot_port"]))
+        # CAN bus (for notifier / background listener)
+        self.bus = can.Bus(interface="socketcan", channel=self.cfg["can_channel"])
+        self.notifier = can.Notifier(self.bus, [])
 
-        self.left_dev = Device(teleplot_ip=self.cfg["teleplot_ip"], teleplot_port=int(self.cfg["teleplot_port"]))
-        self.right_dev = Device(teleplot_ip=self.cfg["teleplot_ip"], teleplot_port=int(self.cfg["teleplot_port"]))
+        # IMUs
+        self.imus = ICM20948_I2C_IMUs()
 
-        self.left_exo = JetsonCanInterface(
-            device_storage=self.left_dev, channel=self.cfg["can_channel"], teensy_id=self.cfg["teensy_id_left"]
+        # Controller
+        self.controller = build_controller(
+            self.cfg["controller_name"], config=self.cfg
         )
-        self.right_exo = JetsonCanInterface(
-            device_storage=self.right_dev, channel=self.cfg["can_channel"], teensy_id=self.cfg["teensy_id_right"]
-        )
-
-        print(f"Initializing Left hip (ID {hex(int(self.cfg['teensy_id_left']))})...")
-        self.left_exo.connect()
-        print(f"Initializing Right hip (ID {hex(int(self.cfg['teensy_id_right']))})...")
-        self.right_exo.connect()
-
-        self.controller = build_controller(self.cfg["controller_name"], config=self.cfg)
         self.controller.start()
 
-        try:
-            t0 = time.perf_counter()
-            self.left_exo.set_reference_time(t0)
-            self.right_exo.set_reference_time(t0)
-        except Exception:
-            pass
-
-        print("\n--- Dual Hip Exo Control Loop Started (os_kinetics) ---")
+        print("\n--- Hip Exo Control Loop Ready ---")
         print(f"Teleplot: {self.cfg['teleplot_ip']}:{self.cfg['teleplot_port']}")
-        print("Press Ctrl+C to stop.")
 
-    def shutdown(self) -> None:
+    # ------------------------------------------------------------------
+    def shutdown(self):
+        cid_L = self.cfg.get("can_id_L", 1)
+        cid_R = self.cfg.get("can_id_R", 2)
         try:
-            if self.left_exo:
-                self.left_exo.setTorque(0.0)
-            if self.right_exo:
-                self.right_exo.setTorque(0.0)
+            if self.mtr_comms:
+                self.mtr_comms.set_torque(cid_L, 0.0)
+                self.mtr_comms.set_torque(cid_R, 0.0)
         except Exception as e:
-            print(f"[Shutdown] setTorque(0) failed: {e}")
-
-        time.sleep(0.1)
-
-        for exo, label in ((self.left_exo, "left"), (self.right_exo, "right")):
-            try:
-                if exo:
-                    exo.close()
-            except Exception as e:
-                print(f"[Shutdown] {label}_exo.close failed: {e}")
+            print(f"[Shutdown] zero-torque failed: {e}")
+        time.sleep(0.05)
 
         try:
-            if self.controller:
-                self.controller.close()
+            if self.notifier: self.notifier.stop()
+            if self.bus:      self.bus.shutdown()
+            print("CAN bus closed.")
         except Exception as e:
-            print(f"[Shutdown] controller.close failed: {e}")
+            print(f"[Shutdown] CAN cleanup: {e}")
 
         try:
-            if self.gpio is not None:
+            if self.controller: self.controller.close()
+        except Exception as e:
+            print(f"[Shutdown] controller.close: {e}")
+
+        try:
+            if self.gpio:
                 self.gpio.pulse_end()
                 self.gpio.close()
         except Exception as e:
-            print(f"[Exit] GPIO cleanup error: {e}")
+            print(f"[Shutdown] GPIO cleanup: {e}")
 
         try:
-            if self.tp is not None:
-                self.tp.close()
+            if self.tp: self.tp.close()
         except Exception:
             pass
 
+        gc.enable()
+        gc.collect()
         try:
-            gc.enable()
-            gc.collect()
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            import torch; torch.cuda.empty_cache()
         except Exception:
             pass
 
-        print("System Shutdown Complete.")
+        print("Shutdown complete.")
 
-    def _pelvis_dev_which(self) -> Tuple[object, int]:
-        side = str(self.cfg.get("pelvis_imu_teensy", "left")).lower()
-        which = int(self.cfg.get("pelvis_imu_which", 2))
-        dev = self.left_dev if side == "left" else self.right_dev
-        return dev, which
+    # ------------------------------------------------------------------
+    def run(self):
+        cfg = self.cfg
+        cid_L = cfg["can_id_L"]
+        cid_R = cfg["can_id_R"]
+        fs = cfg["fs"]
+        exp_time = cfg["exp_time_sec"]
+        exo_on = cfg["exo_on"]
+        torque_limit = cfg["torque_limit"]
+        pulse_delay_sec = cfg.get("gpio_start_delay_sec", 3.0)
+        pulse_width_sec = cfg.get("pulse_width_sec", 0.2)
+        target_time_range = cfg.get("target_time_range_sec", exp_time)
 
-    def run(self) -> None:
-        tt = self.cfg["trigger_type"]
-        if tt == "typing":
-            _ = input("Press Enter to start...\n")
-        elif tt == "mocap":
-            if self.mocap_trigger is not None:
+        # Trigger
+        if cfg["trigger_type"] == "typing":
+            input("Wait for TensorRT to warm up...\nPress Enter to start trial.\n")
+        elif cfg["trigger_type"] == "mocap":
+            print("Waiting for mocap trigger...")
+            if self.mocap_trigger:
                 self.mocap_trigger.wait_for_trigger()
             else:
-                print("[WARN] mocap_trigger is None. Starting immediately.")
+                print("[WARN] No mocap trigger — starting immediately.")
         else:
-            raise NotImplementedError(f"Unknown trigger_type: {tt}")
+            raise NotImplementedError(f"Unknown trigger_type: {cfg['trigger_type']}")
 
-        side = Side(self.cfg["side"])
-        rk = RateKeeper(float(self.cfg["fs"]))
+        rk = RateKeeper(fs)
         rk.start()
         t0 = time.perf_counter()
-        prev_loop_time: Optional[float] = None
-
-        trial_start_sec = 0.0
-        trial_dur_sec = float(self.cfg["exp_time_sec"])
-        pulse_after_start = float(self.cfg["GPIO_START_DELAY_SEC"])
 
         first_pulse_sent = False
-        first_pulse_end: Optional[float] = None
+        first_pulse_end = None
         second_pulse_sent = False
-        second_pulse_end: Optional[float] = None
+        second_pulse_end = None
 
-        pelv_dev, pelv_which = self._pelvis_dev_which()
-        gy_idx = int(self.cfg.get("teleplot_gyro_y_index", 4))
+        max_samples = len(self.data_log["timestamp"])
 
         while True:
-            _, _, _ = rk.wait()
-            loop_now = time.perf_counter()
-            step_start = loop_now
-            if prev_loop_time is None:
-                loop_dt = 0.0
-            else:
-                loop_dt = loop_now - prev_loop_time
-            prev_loop_time = loop_now
-            _ = loop_dt
+            overrun, t_sched, k = rk.wait()
+            now = time.perf_counter() - t0
 
-            use_left = side in (Side.LEFT, Side.BOTH)
-            use_right = side in (Side.RIGHT, Side.BOTH)
+            if self.current_idx >= max_samples:
+                print("Buffer full — stopping.")
+                break
 
-            if use_left:
-                self.left_exo.getParameters()
-            if use_right:
-                self.right_exo.getParameters()
+            idx = self.current_idx
 
-            pos_L = vel_L = 0.0
-            pos_R = vel_R = 0.0
-            imu_P = imu_L = imu_R = imu6_zeros()
-
-            if use_left:
-                pos_L, vel_L = latest_pos_vel(self.left_dev)
-                imu_L = pack_imu6_from_device(self.left_dev, which=1)
-            if use_right:
-                pos_R, vel_R = latest_pos_vel(self.right_dev)
-                imu_R = pack_imu6_from_device(self.right_dev, which=1)
-
-            imu_P = pack_imu6_from_device(pelv_dev, which=pelv_which)
-
-            s = Sensors(
-                imu_P=imu_P,
-                imu_L=imu_L,
-                imu_R=imu_R,
-                pos_L=pos_L,
-                pos_R=pos_R,
-                vel_L=vel_L,
-                vel_R=vel_R,
+            # ── Sensor reads ──────────────────────────────────────────
+            pos_L, vel_L, torque_L = (
+                self.mtr_comms.get_position(cid_L, degrees=True),
+                self.mtr_comms.get_velocity(cid_L, degrees=True),
+                self.mtr_comms.get_torque(cid_L),
             )
+            pos_R_raw, vel_R_raw, torque_R_raw = (
+                self.mtr_comms.get_position(cid_R, degrees=True),
+                self.mtr_comms.get_velocity(cid_R, degrees=True),
+                self.mtr_comms.get_torque(cid_R),
+            )
+            # Negate right-side readings to match left-referenced convention
+            pos_R  = -pos_R_raw
+            vel_R  = -vel_R_raw
+            torque_R = -torque_R_raw
 
+            imu_dict = self.imus.read_IMUs()
+            imu_P = imu_dict["IMU_PELVIS"]
+            imu_L = imu_dict["IMU_THIGH_LEFT"]
+            imu_R = imu_dict["IMU_THIGH_RIGHT"]
+
+            # ── Controller step ───────────────────────────────────────
+            s = Sensors(
+                imu_P=imu_P, imu_L=imu_L, imu_R=imu_R,
+                pos_L=pos_L, pos_R=pos_R,
+                vel_L=vel_L, vel_R=vel_R,
+            )
             r = self.controller.step(s)
-            cmd_L = float(r.applied_L) if use_left else 0.0
-            cmd_R = float(r.applied_R) if use_right else 0.0
 
-            if not self.cfg["exo_on"]:
-                cmd_L = 0.0
-                cmd_R = 0.0
+            cmd_L = r.applied_L if exo_on else 0.0
+            cmd_R = r.applied_R if exo_on else 0.0
 
-            cmd_L = cmd_L * float(self.cfg["scale"])
-            cmd_R = cmd_R * float(self.cfg["scale"])
+            # Apply torque (right motor sign flipped back at hardware level)
+            self.mtr_comms.set_torque(cid_L,  cmd_L)
+            self.mtr_comms.set_torque(cid_R, -cmd_R)
 
-            tlim = float(self.cfg["torque_limit"])
-            cmd_L = clamp(cmd_L, -tlim, tlim)
-            cmd_R = clamp(cmd_R, -tlim, tlim)
+            actual_L =  self.mtr_comms.get_torque(cid_L)
+            actual_R = -self.mtr_comms.get_torque(cid_R)
 
-            if use_left:
-                self.left_exo.setTorque(-cmd_L)
-            if use_right:
-                self.right_exo.setTorque(cmd_R)
+            # ── GPIO pulses ────────────────────────────────────────────
+            if (not first_pulse_sent) and (now >= pulse_delay_sec):
+                self.gpio.pulse_start()
+                first_pulse_sent = True
+                first_pulse_end = now + pulse_width_sec
 
-            now = step_start - t0
+            if first_pulse_sent and first_pulse_end and now >= first_pulse_end:
+                self.gpio.pulse_end()
+                first_pulse_end = None
 
-            if self.gpio is not None:
-                if (not first_pulse_sent) and (now >= trial_start_sec + pulse_after_start):
-                    try:
-                        self.gpio.pulse_start()
-                    except Exception as e:
-                        print(f"[GPIO] first pulse_start error: {e}")
-                    first_pulse_sent = True
-                    first_pulse_end = now + float(self.cfg["PULSE_WIDTH_SEC"])
+            if (not second_pulse_sent) and (now >= pulse_delay_sec + target_time_range):
+                self.gpio.pulse_start()
+                second_pulse_sent = True
+                second_pulse_end = now + pulse_width_sec
 
-                if first_pulse_sent and (first_pulse_end is not None) and (now >= first_pulse_end):
-                    try:
-                        self.gpio.pulse_end()
-                    except Exception as e:
-                        print(f"[GPIO] first pulse_end error: {e}")
-                    first_pulse_end = None
+            if second_pulse_sent and second_pulse_end and now >= second_pulse_end:
+                self.gpio.pulse_end()
+                second_pulse_end = None
 
-                if (not second_pulse_sent) and (now >= trial_start_sec + trial_dur_sec):
-                    try:
-                        self.gpio.pulse_start()
-                    except Exception as e:
-                        print(f"[GPIO] second pulse_start error: {e}")
-                    second_pulse_sent = True
-                    second_pulse_end = now + float(self.cfg["PULSE_WIDTH_SEC"])
+            # ── Data log ───────────────────────────────────────────────
+            ex = r.extra
+            self.data_log["timestamp"][idx]        = now
+            self.data_log["mtr_pos_L"][idx]        = pos_L
+            self.data_log["mtr_pos_R"][idx]        = pos_R
+            self.data_log["mtr_vel_L"][idx]        = vel_L
+            self.data_log["mtr_vel_R"][idx]        = vel_R
+            self.data_log["mtr_cmd_L"][idx]        = cmd_L
+            self.data_log["mtr_cmd_R"][idx]        = cmd_R
+            self.data_log["actual_torque_L"][idx]  = actual_L
+            self.data_log["actual_torque_R"][idx]  = actual_R
+            self.data_log["imu_P"][idx, :]         = imu_P
+            self.data_log["imu_L"][idx, :]         = imu_L
+            self.data_log["imu_R"][idx, :]         = imu_R
+            self.data_log["model_output_L"][idx]   = r.model_out_L
+            self.data_log["model_output_R"][idx]   = r.model_out_R
+            self.data_log["net_torque_L"][idx]     = ex.get("net_L", 0.0)
+            self.data_log["net_torque_R"][idx]     = ex.get("net_R", 0.0)
+            self.data_log["bio_torque_L"][idx]     = ex.get("bio_L", 0.0)
+            self.data_log["bio_torque_R"][idx]     = ex.get("bio_R", 0.0)
+            self.data_log["scaled_torque_L"][idx]  = ex.get("scaled_L", 0.0)
+            self.data_log["scaled_torque_R"][idx]  = ex.get("scaled_R", 0.0)
+            self.data_log["delayed_torque_L"][idx] = ex.get("delayed_L", 0.0)
+            self.data_log["delayed_torque_R"][idx] = ex.get("delayed_R", 0.0)
+            self.data_log["filtered_torque_L"][idx]= ex.get("filtered_L", 0.0)
+            self.data_log["filtered_torque_R"][idx]= ex.get("filtered_R", 0.0)
+            self.data_log["gpio_output"][idx]      = float(self.gpio.state())
 
-                if second_pulse_sent and (second_pulse_end is not None) and (now >= second_pulse_end):
-                    try:
-                        self.gpio.pulse_end()
-                    except Exception as e:
-                        print(f"[GPIO] second pulse_end error: {e}")
-                    second_pulse_end = None
-
-            step_end = time.perf_counter()
-            actual_time = step_start - t0
-
-            if self.tp is not None:
-                try:
-                    gpio_state = float(self.gpio.state()) if self.gpio is not None else 0.0
-                    self.tp.sendValue("cmd_R", cmd_R)
-                    self.tp.sendValue("cmd_L", cmd_L)
-                    self.tp.sendValue("hip_angle_r_u_gyr", r.extra.get("hip_r_u_gyr", 0.0))
-                    self.tp.sendValue("hip_angle_l_u_gyr", r.extra.get("hip_l_u_gyr", 0.0))
-                    self.tp.sendValue("hip_angle_r_u", r.extra.get("hip_angle_r_u", 0.0))
-                    self.tp.sendValue("hip_angle_l_u", r.extra.get("hip_angle_l_u", 0.0))
-                    self.tp.sendValue("hip_angle_r", r.extra.get("hip_angle_r", 0.0))
-                    self.tp.sendValue("hip_angle_l", r.extra.get("hip_angle_l", 0.0))
-                    self.tp.sendValue("GPIO", gpio_state)
-                    self.tp.sendValue("gyro_neg_y_pelvis", float(-imu_P[gy_idx]))
-                    self.tp.sendValue("gyro_neg_y_thigh_r", float(-imu_R[gy_idx]))
-                    self.tp.sendValue("gyro_neg_y_thigh_l", float(-imu_L[gy_idx]))
-                    self.tp.sendValue("moment_nm_kg_r", r.extra.get("moment_nm_kg_r", 0.0))
-                    self.tp.sendValue("moment_nm_kg_l", r.extra.get("moment_nm_kg_l", 0.0))
-                    self.tp.sendValue("hip_enc_vel_r", r.extra.get("hip_encoder_vel_r", 0.0))
-                    self.tp.sendValue("hip_enc_vel_l", r.extra.get("hip_encoder_vel_l", 0.0))
-                    self.tp.sendValue("roop_time", step_end - step_start)
-                except Exception:
-                    pass
-
-            if self.current_idx < len(self.data_log["time"]):
-                self.data_log["time"][self.current_idx] = actual_time
-                self.data_log["hip_angle_r"][self.current_idx] = pos_R
-                self.data_log["hip_angle_l"][self.current_idx] = -pos_L
-                self.data_log["hip_angle_r_u_gyr"][self.current_idx] = r.extra.get("hip_r_u_gyr", 0.0)
-                self.data_log["hip_angle_l_u_gyr"][self.current_idx] = r.extra.get("hip_l_u_gyr", 0.0)
-                self.data_log["gyro_neg_y_pelvis"][self.current_idx] = float(-imu_P[gy_idx])
-                self.data_log["gyro_neg_y_thigh_r"][self.current_idx] = float(-imu_R[gy_idx])
-                self.data_log["gyro_neg_y_thigh_l"][self.current_idx] = float(-imu_L[gy_idx])
-                self.data_log["cmd_L"][self.current_idx] = cmd_L
-                self.data_log["cmd_R"][self.current_idx] = cmd_R
-                self.data_log["GPIO"][self.current_idx] = float(self.gpio.state()) if self.gpio is not None else 0.0
+            # ── Teleplot ───────────────────────────────────────────────
+            self.tp.sendBatch({
+                "time":            now,
+                "loop_overrun_ms": overrun * 1000,
+                "cmd_L":           cmd_L,
+                "cmd_R":           cmd_R,
+                "actual_L":        actual_L,
+                "actual_R":        actual_R,
+                "model_out_L":     r.model_out_L,
+                "model_out_R":     r.model_out_R,
+                "scaled_L":        ex.get("scaled_L", 0.0),
+                "scaled_R":        ex.get("scaled_R", 0.0),
+                "delayed_L":       ex.get("delayed_L", 0.0),
+                "delayed_R":       ex.get("delayed_R", 0.0),
+                "filtered_L":      ex.get("filtered_L", 0.0),
+                "filtered_R":      ex.get("filtered_R", 0.0),
+                "gpio":            self.gpio.state(),
+            })
 
             self.current_idx += 1
 
-            if self.current_idx >= len(self.data_log["time"]):
-                break
 
-
+# ======================================================================
+# Signal handling + entry point
+# ======================================================================
 _RUNNER: Optional[DualHipRunner] = None
 
 
-def _handle_signal(sig, frame) -> None:
+def _handle_signal(sig, frame):
     global _RUNNER
     print(f"\nSignal {sig} received. Shutting down...")
-    try:
-        if _RUNNER:
+    if _RUNNER:
+        try:
             _RUNNER.shutdown()
-    finally:
-        sys.exit(0)
+        except Exception:
+            pass
+    sys.exit(0)
 
 
-def main() -> None:
+def main():
     global _RUNNER
     args = parse_args()
     cfg = load_config(args.config)
     print_config(cfg)
 
+    gc.disable()
+    mp.set_start_method("spawn", force=True)
+
     runner = DualHipRunner(cfg)
     _RUNNER = runner
 
     atexit.register(runner.shutdown)
-    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGINT,  _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    gc.disable()
     try:
         runner.setup()
         runner.run()
     except KeyboardInterrupt:
-        print("KeyboardInterrupt received.")
+        print("KeyboardInterrupt.")
     except Exception as e:
         print(f"[MAIN ERROR] {e}")
         traceback.print_exc()
@@ -502,11 +465,9 @@ def main() -> None:
         runner.shutdown()
         gc.enable()
         gc.collect()
-        print("Preparing data for saving...")
-        for key in runner.data_log.keys():
-            runner.data_log[key] = runner.data_log[key][: runner.current_idx]
-        np.savez(runner.cfg["trial_name"], **runner.data_log)
-        print(f"=== Saving data for trial: {runner.cfg['trial_name']} ===")
+        valid = runner.current_idx
+        print(f"Saving {valid} samples...")
+        save_data(runner.data_log, cfg, valid)
 
 
 if __name__ == "__main__":

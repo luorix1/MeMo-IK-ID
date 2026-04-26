@@ -1,3 +1,4 @@
+# utils/teleplot.py
 import socket
 
 
@@ -7,14 +8,22 @@ class Teleplot:
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def sendValue(self, name: str, value: float) -> None:
+    def sendValue(self, name: str, value):
         try:
-            message = f"{name}:{value}"
-            self.sock.sendto(message.encode("utf-8"), (self.ip, self.port))
+            self.sock.sendto(f"{name}:{value}".encode("utf-8"), (self.ip, self.port))
         except Exception:
             pass
 
-    def close(self) -> None:
+    def sendBatch(self, data: dict):
+        try:
+            for name, value in data.items():
+                self.sock.sendto(
+                    f"{name}:{value}".encode("utf-8"), (self.ip, self.port)
+                )
+        except Exception:
+            pass
+
+    def close(self):
         try:
             self.sock.close()
         except Exception:

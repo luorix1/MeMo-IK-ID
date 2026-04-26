@@ -5,7 +5,7 @@ from queue import Empty, Full
 from .base import BaseController, Sensors, CtrlResult, RollingWindow
 from .trt_worker import TRTWorker
 
-class impedance_rl(BaseController):
+class ImpedanceRL(BaseController):
     name = "impedance_rl"
 
     def __init__(self, config: dict):

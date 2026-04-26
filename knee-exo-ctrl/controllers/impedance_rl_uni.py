@@ -6,7 +6,7 @@ from .base import BaseController, Sensors, CtrlResult, RollingWindow
 from .trt_worker_uni import TRTWorkerUni
 
 
-class impedance_rl_uni(BaseController):
+class ImpedanceRLUni(BaseController):
     """
     Unilateral knee impedance controller with TCN inference via TensorRT.
 

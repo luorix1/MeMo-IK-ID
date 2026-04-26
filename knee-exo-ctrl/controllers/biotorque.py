@@ -8,7 +8,7 @@ from .base import BaseController, CtrlResult, RollingWindow, Sensors
 from .trt_worker import TRTWorker
 
 
-class biotorque(BaseController):
+class Biotorque(BaseController):
     name = "biotorque"
 
     def __init__(self, config: dict):
