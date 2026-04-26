@@ -14,10 +14,10 @@ exo_on: true
 trigger_type: "typing"
 
 # "right" or "left" — only this side sends torque; the other side gets 0
-side: "left"
+side: "right"
 
 controller_name: "cascade_uni"
-trt_engine_path: "/home/exov3/MeMo-IK-ID/best_model.trt"
+trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/cascade.trt"
 
 frame_length: 100
 input_size: 2
@@ -29,9 +29,9 @@ exp_time_sec: 360
 # Training moments are stored as Nm/kg (body-mass normalized).
 # The controller multiplies model output by mass to get Nm, then by torque_scale.
 # Final torque (Nm) = model_out (Nm/kg) × mass (kg) × torque_scale
-mass: 75.0           # subject body mass (kg) — update per subject
-torque_scale: 1.0    # dimensionless gain (set < 1.0 to reduce assistance)
-torque_limit: 20.0   # hard clamp (Nm)
+mass: 88.0           # subject body mass (kg) — update per subject
+scale: 1.0    # dimensionless gain (set < 1.0 to reduce assistance)
+torque_limit: 5.0   # hard clamp (Nm)
 
 # ---- normalization stats from training checkpoint ----
 # Source: runs/0423_ik_id_knee_huber_noise/best_model.pt  → ckpt["normalization"]
