@@ -24,6 +24,7 @@ from typing import Tuple
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+from scipy.signal import butter, lfilter
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -149,6 +150,14 @@ def corr(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(aa, bb) / den)
 
 
+def causal_lpf(x: np.ndarray, fs_hz: float, cutoff_hz: float = 4.0, order: int = 4) -> np.ndarray:
+    """Causal Butterworth LPF (forward-only, no zero-phase smoothing)."""
+    nyq = 0.5 * float(fs_hz)
+    wn = float(cutoff_hz) / nyq
+    b, a = butter(order, wn, btype="low", analog=False)
+    return lfilter(b, a, x).astype(np.float32)
+
+
 def main() -> None:
     args = parse_args()
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=False)
@@ -176,6 +185,17 @@ def main() -> None:
 
     pred_nmpkg = run_inference(model, angle, vel, window_size, device=device)
     pred_nm = pred_nmpkg * float(args.mass) * float(args.scale)
+    fs_hz = 100.0
+    if "time" in log.files:
+        t = np.asarray(log["time"], dtype=np.float32)[:n]
+        dt = np.diff(t)
+        if np.all(np.isfinite(dt)) and len(dt) > 5 and float(np.mean(dt)) > 1e-6:
+            fs_hz = float(1.0 / np.mean(dt))
+
+    angle_lpf = causal_lpf(angle, fs_hz=fs_hz, cutoff_hz=4.0, order=4)
+    vel_lpf = causal_lpf(vel, fs_hz=fs_hz, cutoff_hz=4.0, order=4)
+    pred_lpf_nmpkg = run_inference(model, angle_lpf, vel_lpf, window_size, device=device)
+    pred_lpf_nm = pred_lpf_nmpkg * float(args.mass) * float(args.scale)
 
     print("\n=== Signal Summary ===")
     print(f"n={n}")
@@ -183,9 +203,13 @@ def main() -> None:
     print(f"vel  : min={vel.min(): .4f} max={vel.max(): .4f} mean={vel.mean(): .4f} std={vel.std(): .4f}")
     print(f"pred_nmpkg: min={pred_nmpkg.min(): .4f} max={pred_nmpkg.max(): .4f} mean={pred_nmpkg.mean(): .4f} std={pred_nmpkg.std(): .4f}")
     print(f"pred_nm   : min={pred_nm.min(): .4f} max={pred_nm.max(): .4f} mean={pred_nm.mean(): .4f} std={pred_nm.std(): .4f}")
+    print(f"pred_lpf_nmpkg (4Hz,4th,causal): min={pred_lpf_nmpkg.min(): .4f} max={pred_lpf_nmpkg.max(): .4f} mean={pred_lpf_nmpkg.mean(): .4f} std={pred_lpf_nmpkg.std(): .4f}")
+    print(f"pred_lpf_nm    (4Hz,4th,causal): min={pred_lpf_nm.min(): .4f} max={pred_lpf_nm.max(): .4f} mean={pred_lpf_nm.mean(): .4f} std={pred_lpf_nm.std(): .4f}")
     print(f"cmd_nm    : min={cmd.min(): .4f} max={cmd.max(): .4f} mean={cmd.mean(): .4f} std={cmd.std(): .4f}")
     print(f"corr(pred_nm, cmd_nm) = {corr(pred_nm, cmd): .4f}")
+    print(f"corr(pred_lpf_nm, cmd_nm) = {corr(pred_lpf_nm, cmd): .4f}")
     print(f"MAE(pred_nm vs cmd_nm)= {float(np.mean(np.abs(pred_nm - cmd))): .4f}")
+    print(f"MAE(pred_lpf_nm vs cmd_nm)= {float(np.mean(np.abs(pred_lpf_nm - cmd))): .4f}")
 
     if args.save:
         out = os.path.abspath(args.save)
@@ -193,9 +217,13 @@ def main() -> None:
             out,
             pred_nmpkg=pred_nmpkg,
             pred_nm=pred_nm,
+            pred_lpf_nmpkg=pred_lpf_nmpkg,
+            pred_lpf_nm=pred_lpf_nm,
             cmd_nm=cmd,
             knee_angle=angle,
             knee_vel=vel,
+            knee_angle_lpf=angle_lpf,
+            knee_vel_lpf=vel_lpf,
         )
         print(f"[INFO] Saved predictions to: {out}")
 
@@ -203,7 +231,8 @@ def main() -> None:
         fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
         x = np.arange(n)
 
-        axes[0].plot(x, pred_nm, label="pred_nm (offline from ckpt)", linewidth=1.5)
+        axes[0].plot(x, pred_nm, label="pred_nm (raw inputs)", linewidth=1.5)
+        axes[0].plot(x, pred_lpf_nm, label="pred_nm (4Hz/4th causal input LPF)", linewidth=1.2)
         axes[0].plot(x, cmd, label="cmd_nm (logged)", linewidth=1.0, alpha=0.85)
         axes[0].set_ylabel("Torque (Nm)")
         axes[0].set_title("Offline Checkpoint Prediction vs Logged Command")
