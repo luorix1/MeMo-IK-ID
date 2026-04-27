@@ -30,7 +30,7 @@ exp_time_sec: 360
 # The controller multiplies model output by mass to get Nm, then by torque_scale.
 # Final torque (Nm) = model_out (Nm/kg) × mass (kg) × torque_scale
 mass: 88.0           # subject body mass (kg) — update per subject
-scale: 0.5    # dimensionless gain (set < 1.0 to reduce assistance)
+scale: 0.0    # dimensionless gain (set < 1.0 to reduce assistance)
 torque_limit: 5.0   # hard clamp (Nm)
 
 # ---- normalization stats from training checkpoint ----
@@ -39,12 +39,12 @@ torque_limit: 5.0   # hard clamp (Nm)
 # side to match right convention before statistics were computed).
 #
 # ch0: knee encoder angle (rad)
-knee_angle_mean: -0.5066
-knee_angle_std:   0.3985
+knee_angle_mean: 0.0
+knee_angle_std:  1.0
 
 # ch1: knee angular velocity — shank_gz minus thigh_gz (rad/s)
-knee_vel_mean:  0.0417
-knee_vel_std:   2.9439
+knee_vel_mean:  0.0
+knee_vel_std:   1.0
 
 # ---- hardware ----
 can_channel: "can0"
