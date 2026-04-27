@@ -296,6 +296,9 @@ class CascadeUni(BaseController):
         model_out_nmpkg = self.infer_out_lpf.update(model_out_nmpkg_raw)
         moment_raw = model_out_nmpkg * self.mass * self.torque_scale
 
+        # FIXME: Temporary sign flip to see if output is wrong sign
+        moment_raw = -moment_raw
+
         # Keep assist_gate as a diagnostic signal (biotorque parity), but do not
         # apply it to torque.
         moment_cmd = moment_raw
