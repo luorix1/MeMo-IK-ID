@@ -30,8 +30,8 @@ exp_time_sec: 360
 # The controller multiplies model output by mass to get Nm, then by torque_scale.
 # Final torque (Nm) = model_out (Nm/kg) × mass (kg) × torque_scale
 mass: 88.0           # subject body mass (kg) — update per subject
-scale: 0.0    # dimensionless gain (set < 1.0 to reduce assistance)
-torque_limit: 5.0   # hard clamp (Nm)
+scale: 0.2    # dimensionless gain (set < 1.0 to reduce assistance)
+torque_limit: 6.0   # hard clamp (Nm)
 
 # ---- normalization stats from training checkpoint ----
 # Source: runs/0423_ik_id_knee_huber_noise/best_model.pt  → ckpt["normalization"]
