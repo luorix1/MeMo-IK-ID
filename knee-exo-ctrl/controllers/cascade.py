@@ -24,6 +24,35 @@ from .base import BaseController, CtrlResult, RollingWindow, Sensors
 from .trt_worker_uni import TRTWorkerUni
 
 
+class _CausalLowPass:
+    """Streaming causal low-pass via cascaded 1st-order sections."""
+
+    def __init__(self, fs_hz: float, cutoff_hz: float, order: int = 4):
+        self.fs_hz = float(fs_hz)
+        self.cutoff_hz = float(cutoff_hz)
+        self.order = max(1, int(order))
+        if self.cutoff_hz <= 0.0:
+            self.alpha = 1.0
+        else:
+            dt = 1.0 / self.fs_hz
+            tau = 1.0 / (2.0 * np.pi * self.cutoff_hz)
+            self.alpha = dt / (tau + dt)
+        self.state = [0.0] * self.order
+        self.initialized = False
+
+    def update(self, x: float) -> float:
+        x = float(x)
+        if not self.initialized:
+            self.state = [x] * self.order
+            self.initialized = True
+            return x
+        y = x
+        for i in range(self.order):
+            self.state[i] = self.state[i] + self.alpha * (y - self.state[i])
+            y = self.state[i]
+        return float(y)
+
+
 class CascadeUni(BaseController):
     name = "cascade_uni"
 
@@ -44,6 +73,10 @@ class CascadeUni(BaseController):
         self.knee_angle_std  = float(config.get("knee_angle_std", 1.0))
         self.knee_vel_mean   = float(config.get("knee_vel_mean", 0.0))
         self.knee_vel_std    = float(config.get("knee_vel_std", 1.0))
+
+        # Causal LPF applied directly in inference path (inputs + model output).
+        self.infer_lpf_hz = float(config.get("infer_lpf_hz", 4.0))
+        self.infer_lpf_order = int(config.get("infer_lpf_order", 4))
 
         # Model outputs Nm/kg (moments stored as N*m/kg in training dataset).
         # Multiply by subject mass to recover Nm, then by torque_scale for tuning.
@@ -75,6 +108,11 @@ class CascadeUni(BaseController):
             self.out_shape,
         )
         self.worker.daemon = True
+
+        # Inference-path causal low-pass filters
+        self.infer_angle_lpf = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
+        self.infer_vel_lpf = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
+        self.infer_out_lpf = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
 
         # filtered states
         self.knee_angle_filt   = 0.0   # encoder angle (rad)
@@ -231,11 +269,13 @@ class CascadeUni(BaseController):
         self.knee_vel_imu_filt = self._lpf(self.knee_vel_imu_filt, knee_vel_imu_raw, self.imu_filter_tau)
 
         # ---- build model input (raw, sign-corrected; matches training normalize=False) ----
-        knee_angle_norm = self._normalize(encoder_raw, self.knee_angle_mean, self.knee_angle_std)
-        knee_vel_norm = self._normalize(knee_vel_imu_raw, self.knee_vel_mean, self.knee_vel_std)
+        encoder_for_model = self.infer_angle_lpf.update(encoder_raw)
+        knee_vel_for_model = self.infer_vel_lpf.update(knee_vel_imu_raw)
+        knee_angle_norm = self._normalize(encoder_for_model, self.knee_angle_mean, self.knee_angle_std)
+        knee_vel_norm = self._normalize(knee_vel_for_model, self.knee_vel_mean, self.knee_vel_std)
         x_last = np.array([
-            encoder_raw,
-            knee_vel_imu_raw,
+            encoder_for_model,
+            knee_vel_for_model,
         ], dtype=np.float32)
 
         seq = self.x.push_last(x_last)                                   # (2, T)
@@ -252,7 +292,8 @@ class CascadeUni(BaseController):
 
         # ---- post-process model output ----
         # model output is Nm/kg → multiply by mass → Nm, then apply torque_scale
-        model_out_nmpkg = float(self.last_out[0])
+        model_out_nmpkg_raw = float(self.last_out[0])
+        model_out_nmpkg = self.infer_out_lpf.update(model_out_nmpkg_raw)
         moment_raw = model_out_nmpkg * self.mass * self.torque_scale
 
         # Keep assist_gate as a diagnostic signal (biotorque parity), but do not
@@ -281,9 +322,12 @@ class CascadeUni(BaseController):
                 "knee_vel_imu":    float(self.knee_vel_imu_filt),
                 "model_in_knee_angle_raw": float(encoder_raw),
                 "model_in_knee_vel_raw": float(knee_vel_imu_raw),
+                "model_in_knee_angle_lpf": float(encoder_for_model),
+                "model_in_knee_vel_lpf": float(knee_vel_for_model),
                 # "norm" fields are debug-only references; model input uses raw fields.
                 "model_in_knee_angle_norm": float(knee_angle_norm),
                 "model_in_knee_vel_norm": float(knee_vel_norm),
+                "model_out_nmpkg_raw": float(model_out_nmpkg_raw),
                 "model_out_nmpkg": float(model_out_nmpkg),
                 "moment_raw":      float(moment_raw),
                 "moment_cmd":      float(moment_cmd),
