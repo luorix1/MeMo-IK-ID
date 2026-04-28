@@ -335,16 +335,41 @@ def is_levelground_subset_condition(condition_name: str) -> bool:
     return False
 
 
+def _subject_num(subject_id: str) -> int:
+    """Return the integer number from a subject ID string like 'S042', or 0."""
+    m = re.search(r"\d+", subject_id)
+    return int(m.group()) if m else 0
+
+
+# FIXME: Remove this gate (and all call sites) after broken H5 / pipeline issues are fixed.
+def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
+    """Temporarily drop known-bad subject ID bands from all KineticsTCNDataset loading."""
+    n = _subject_num(subject_id)
+    if 386 <= n <= 426:
+        return True
+    if n >= 444:
+        return True
+    return False
+
+
 def include_condition_for_dataset(
     condition_name: str,
     *,
     walking_only: bool,
     levelground_only: bool,
+    subject_id: str = "",
 ) -> bool:
-    """Whether to include an H5 group / trial-folder condition in KineticsTCNDataset."""
+    """Whether to include an H5 group / trial-folder condition in KineticsTCNDataset.
+
+    The is_walking_condition() name filter is only applied for S001–S056 (b3d
+    datasets with heterogeneous condition naming).  Subjects beyond S056 use
+    canonical unified condition names and are filtered by
+    is_levelground_subset_condition() when levelground_only=True, or kept
+    unconditionally when walking_only=True.
+    """
     if levelground_only:
         return is_levelground_subset_condition(condition_name)
-    if walking_only:
+    if walking_only and _subject_num(subject_id) <= 56:
         return is_walking_condition(Path(condition_name))
     return True
 
@@ -399,9 +424,12 @@ def enumerate_walking_trials_for_stride_plan(
             h5_root = Path(requested_h5_dir)
             for p in sorted([Path(x) for x in b3d_files]):
                 sid = extract_subject_id(p)
+                if _subject_id_excluded_temp_broken_h5(sid):
+                    continue
                 cond = p.parent.name
                 if not include_condition_for_dataset(
-                    cond, walking_only=walking_only, levelground_only=levelground_only
+                    cond, walking_only=walking_only, levelground_only=levelground_only,
+                    subject_id=sid,
                 ):
                     continue
                 tr = p.name
@@ -409,12 +437,15 @@ def enumerate_walking_trials_for_stride_plan(
         else:
             for subject_h5_path in sorted(Path(requested_h5_dir).glob("S*.h5")):
                 sid = subject_h5_path.stem.upper()
+                if _subject_id_excluded_temp_broken_h5(sid):
+                    continue
                 if subject_ids_norm is not None and sid not in set(subject_ids_norm):
                     continue
                 with h5py.File(subject_h5_path, "r") as h5f:
                     for cond in sorted(h5f.keys()):
                         if not include_condition_for_dataset(
-                            cond, walking_only=walking_only, levelground_only=levelground_only
+                            cond, walking_only=walking_only, levelground_only=levelground_only,
+                            subject_id=sid,
                         ):
                             continue
                         for trial in sorted(h5f[cond].keys()):
@@ -429,8 +460,10 @@ def enumerate_walking_trials_for_stride_plan(
         trial_dirs = [
             td
             for td in trial_dirs
-            if include_condition_for_dataset(
-                td.parent.name, walking_only=walking_only, levelground_only=levelground_only
+            if (not _subject_id_excluded_temp_broken_h5(extract_subject_id(td)))
+            and include_condition_for_dataset(
+                td.parent.name, walking_only=walking_only, levelground_only=levelground_only,
+                subject_id=extract_subject_id(td),
             )
         ]
         if max_files is not None:
@@ -1371,11 +1404,14 @@ class KineticsTCNDataset(Dataset):
                 refs: List[Tuple[str, str, str, str]] = []
                 for p in sorted([Path(x) for x in b3d_files]):
                     sid = extract_subject_id(p)
+                    if _subject_id_excluded_temp_broken_h5(sid):
+                        continue
                     cond = p.parent.name
                     if not include_condition_for_dataset(
                         cond,
                         walking_only=self.walking_only,
                         levelground_only=self.levelground_only,
+                        subject_id=sid,
                     ):
                         continue
                     trial = p.name
@@ -1387,6 +1423,8 @@ class KineticsTCNDataset(Dataset):
                 refs = []
                 for subject_h5_path in sorted(Path(self.h5_dir).glob("S*.h5")):
                     sid = subject_h5_path.stem.upper()
+                    if _subject_id_excluded_temp_broken_h5(sid):
+                        continue
                     if subject_ids_norm is not None and sid not in set(subject_ids_norm):
                         continue
                     with h5py.File(subject_h5_path, "r") as h5f:
@@ -1395,6 +1433,7 @@ class KineticsTCNDataset(Dataset):
                                 cond,
                                 walking_only=self.walking_only,
                                 levelground_only=self.levelground_only,
+                                subject_id=sid,
                             ):
                                 continue
                             for trial in sorted(h5f[cond].keys()):
@@ -1422,10 +1461,12 @@ class KineticsTCNDataset(Dataset):
             trial_dirs = [
                 td
                 for td in trial_dirs
-                if include_condition_for_dataset(
+                if (not _subject_id_excluded_temp_broken_h5(extract_subject_id(td)))
+                and include_condition_for_dataset(
                     td.parent.name,
                     walking_only=self.walking_only,
                     levelground_only=self.levelground_only,
+                    subject_id=extract_subject_id(td),
                 )
             ]
             if max_files is not None:
