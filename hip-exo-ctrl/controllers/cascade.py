@@ -155,6 +155,7 @@ class CascadeHip(BaseController):
         infer_lpf_order: int = 4,
         input_size: int = 2,
         output_size: int = 1,
+        **_,
     ):
         self.engine_path = engine_path
         self.T = int(frame_length)
