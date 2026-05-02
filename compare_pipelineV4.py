@@ -618,6 +618,22 @@ def _classify_loc_bucket(
     ):
         return "LG"
 
+    # AddBiomechanics / OpenCap unified exports (dataset.classify_loc_bucket parity).
+    if "uphillrun" in c:
+        return "RA"
+    if "downhillrun" in c:
+        return "RD"
+    if c.startswith("flatrun"):
+        return "LG"
+    if c.startswith("walk_"):
+        return "LG"
+    if re.match(r"^walking\d+$", c) or re.match(r"^walkingts\d+$", c):
+        return "LG"
+    if c in ("baseline", "fpa", "step_width", "trunk_sway"):
+        return "LG"
+    if re.match(r"^subj\d+_(run|walk)_\d+$", c):
+        return "LG"
+
     return "OTHER"
 
 

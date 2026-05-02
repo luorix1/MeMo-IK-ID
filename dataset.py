@@ -121,6 +121,55 @@ UNILATERAL_FLIP_MOMENT_INDICES = (
     MOMENT_NAMES.index("hip_rotation_l"),
 )
 
+# FIXME: Temporary IK angle sign fixes for known AddBiomechanics cohort export issues.
+# Correct sign conventions in source data / preprocessing, then remove this map and callers.
+# Cohort keys match labels from ``discover_dataset_slices_from_dir`` (manifests next to H5 root).
+_ADDBIOMECH_TEMP_IK_ANGLE_FLIP_BY_COHORT: Dict[str, frozenset] = {
+    "Camargo": frozenset({"ankle_angle_l"}),
+    "Moore2015_No_Arm": frozenset(
+        {"ankle_angle_l", "ankle_angle_r", "knee_angle_l", "knee_angle_r"}
+    ),
+    "Falisse2017": frozenset({"knee_angle_l", "knee_angle_r", "ankle_angle_l", "ankle_angle_r"}),
+    "Hamner2013": frozenset({"knee_angle_l", "knee_angle_r"}),
+    "Uhlrich2023_No_Arm": frozenset({"hip_flexion_l", "hip_flexion_r", "knee_angle_l", "knee_angle_r"}),
+}
+
+
+def _apply_temp_addbiomech_ik_angle_sign_fix(
+    subject_id: str,
+    pos_rad: np.ndarray,
+    manifest_root: Optional[Union[str, Path]],
+) -> np.ndarray:
+    """FIXME: Temporary — negate selected IK columns (rad) by cohort; remove when upstream is fixed."""
+    if manifest_root is None:
+        return pos_rad
+    root = Path(manifest_root)
+    if not root.is_dir():
+        return pos_rad
+    try:
+        from ik_id.test_addbiomech_repr_subjects import (
+            discover_dataset_slices_from_dir,
+            slice_label_for_subject,
+        )
+    except ImportError:
+        return pos_rad
+    try:
+        slices, _ = discover_dataset_slices_from_dir(root)
+        cohort = slice_label_for_subject(subject_id, slices)
+    except Exception:
+        return pos_rad
+    if cohort in ("unmapped", "invalid_id"):
+        return pos_rad
+    dofs = _ADDBIOMECH_TEMP_IK_ANGLE_FLIP_BY_COHORT.get(cohort)
+    if not dofs:
+        return pos_rad
+    out = np.asarray(pos_rad, dtype=np.float64, copy=True)
+    for name in dofs:
+        if name in IK_DOF_NAMES:
+            j = IK_DOF_NAMES.index(name)
+            out[:, j] *= -1.0
+    return out
+
 
 def normalize_laterality(laterality: Optional[str]) -> str:
     """
@@ -345,9 +394,14 @@ def _subject_num(subject_id: str) -> int:
 def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
     """Temporarily drop known-bad subject ID bands from all KineticsTCNDataset loading."""
     n = _subject_num(subject_id)
+    # Falisse2017, Hamner2013, Moore2015, Tan2021
     if 386 <= n <= 426:
         return True
-    if n >= 444:
+    # Tiziana2019
+    if 444 <= n <= 493:
+        return True
+    # vanderZee2022
+    if 513 <= n <= 522:
         return True
     return False
 
@@ -372,6 +426,132 @@ def include_condition_for_dataset(
     if walking_only and _subject_num(subject_id) <= 56:
         return is_walking_condition(Path(condition_name))
     return True
+
+
+# Buckets aligned with compare_pipelineV4._classify_loc_bucket / per_loc_condition reporting.
+LOC_BUCKET_OVERSAMPLE_KEYS: Tuple[str, ...] = ("LG", "SA", "SD", "RA", "RD")
+
+
+def load_loc_ascent_descent_mapping(path: Optional[str]) -> Dict[Tuple[str, str, str], str]:
+    """
+    Load explicit ascent/descent bucket labels from JSON (same schema as compare_pipelineV4).
+
+    Odd trial_NN -> ascent (SA or RA), even -> descent (SD or RD) for listed condition groups.
+    """
+    if not path:
+        return {}
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"loc_ascent_descent_map not found: {p}")
+    doc = json.loads(p.read_text())
+    subjects = doc.get("subjects", {})
+    if not isinstance(subjects, dict):
+        raise ValueError("Invalid mapping JSON: missing dict field 'subjects'.")
+
+    out: Dict[Tuple[str, str, str], str] = {}
+    for sid_raw, conds in subjects.items():
+        if not isinstance(conds, dict):
+            continue
+        sid = str(sid_raw).upper()
+        for cond_raw, n_raw in conds.items():
+            try:
+                n_trials = int(n_raw)
+            except Exception:
+                continue
+            cond = str(cond_raw)
+            cl = cond.lower()
+            if "stair" in cl:
+                asc_label, dsc_label = "SA", "SD"
+            elif "incline" in cl or "ramp" in cl:
+                asc_label, dsc_label = "RA", "RD"
+            else:
+                continue
+            for i in range(1, max(0, n_trials) + 1):
+                trial = f"trial_{i:02d}"
+                out[(sid, cond, trial)] = asc_label if (i % 2 == 1) else dsc_label
+    return out
+
+
+def classify_loc_bucket(
+    subject_id: str,
+    condition: str,
+    trial: str,
+    loc_map: Optional[Dict[Tuple[str, str, str], str]] = None,
+) -> str:
+    """
+    Map condition group + trial key to a coarse locomotion bucket (LG / RA / RD / SA / SD / …).
+
+    Priority: optional JSON map → trial prefix token (LG/RA/RD/SA/SD) → ramp/stair naming in
+    condition/trial text → Camargo LG prefixes → AddBiomechanics/OpenCap slope & walk groups
+    (``uphillrun`` / ``downhillrun`` / ``flatrun_*`` / ``walk_*`` / …) → OTHER.
+    Keep compare_pipelineV4._classify_loc_bucket aligned when editing.
+    """
+    sid = (subject_id or "").strip().upper()
+    c = (condition or "").strip().lower()
+    tr = (trial or "").strip().lower()
+    if loc_map:
+        mapped = loc_map.get((sid, condition, trial))
+        if mapped is not None:
+            return mapped
+
+    trial_first = (trial or "").strip().split("_")[0].upper()
+    if trial_first == "LG":
+        return "LG"
+    if trial_first == "RA":
+        return "RA"
+    if trial_first == "RD":
+        return "RD"
+    if trial_first == "SA":
+        return "SA"
+    if trial_first == "SD":
+        return "SD"
+
+    if (
+        "incline" in c
+        or c.startswith("incline_")
+        or re.match(r"^incline_\d+_[lr]$", c)
+    ):
+        if re.search(r"(_up|up_|ascent)", c) or re.search(r"(_up|up_|ascent)", tr):
+            return "RA"
+        if re.search(r"(_down|down_|descent)", c) or re.search(r"(_down|down_|descent)", tr):
+            return "RD"
+        return "RA/RD"
+
+    if (
+        "stair" in c
+        or c.startswith("stair_")
+        or re.match(r"^stair_\d+_[lr]$", c)
+    ):
+        if re.search(r"(_up|up_|ascent)", c) or re.search(r"(_up|up_|ascent)", tr):
+            return "SA"
+        if re.search(r"(_down|down_|descent)", c) or re.search(r"(_down|down_|descent)", tr):
+            return "SD"
+        return "SA/SD"
+
+    if (
+        c.startswith("levelground_")
+        or "stair" in c
+        or c.startswith("treadmill_")
+    ):
+        return "LG"
+
+    # AddBiomechanics / OpenCap unified exports (typically S057+): slope runs and level walking.
+    if "uphillrun" in c:
+        return "RA"
+    if "downhillrun" in c:
+        return "RD"
+    if c.startswith("flatrun"):
+        return "LG"
+    if c.startswith("walk_"):
+        return "LG"
+    if re.match(r"^walking\d+$", c) or re.match(r"^walkingts\d+$", c):
+        return "LG"
+    if c in ("baseline", "fpa", "step_width", "trunk_sway"):
+        return "LG"
+    if re.match(r"^subj\d+_(run|walk)_\d+$", c):
+        return "LG"
+
+    return "OTHER"
 
 
 # MeMo / Camargo-style locomotion prefixes (see memo_task_duration_composition.py).
@@ -1052,6 +1232,8 @@ def load_trial_from_processed(
     pos = pos[:n]
     id_data = id_data[:n]
 
+    pos = _apply_temp_addbiomech_ik_angle_sign_fix(subj_id, pos, Path(root_dir))
+
     moments = np.full((n, len(MOMENT_NAMES)), np.nan, dtype=np.float64)
     for j, name in enumerate(MOMENT_NAMES):
         col = f"{name}_moment"
@@ -1131,6 +1313,10 @@ class KineticsTCNDataset(Dataset):
 
     Optional Butterworth low-pass on IK positions and ID moments is always **zero-phase**
     (``_lowpass_zero_phase`` / ``sosfiltfilt``), same as ``_denoise_pos_and_moments``.
+
+    ``balance_loc_buckets_oversample``: after windowing, optionally upsample with replacement so buckets
+    LG, SA, SD, RA, RD (see ``classify_loc_bucket``, same rules as ``compare_pipelineV4``) each contribute
+    equally among buckets that appear in the loader. Windows mapped to OTHER / RA/RD / SA/SD keep one copy.
     """
 
     _UNSET = object()
@@ -1256,6 +1442,71 @@ class KineticsTCNDataset(Dataset):
             if bool(valid[i]):
                 self.windows.append((t_idx, int(st), None))
 
+    def _trial_loc_bucket(self, t_idx: int) -> str:
+        if self.use_h5:
+            sid, cond, trial, _ = self.h5_trial_refs[t_idx]
+            return classify_loc_bucket(sid, cond, trial, self._loc_bucket_map or None)
+        td = self.trial_dirs[t_idx]
+        sid = extract_subject_id(td)
+        cond = td.parent.name
+        trial = td.name
+        return classify_loc_bucket(sid, cond, trial, self._loc_bucket_map or None)
+
+    def _apply_loc_bucket_oversample(self) -> None:
+        """
+        Duplicate windows so each of LG, SA, SD, RA, RD present in the loader contributes equally
+        (same target count = max per-bucket count). Other buckets keep a single copy per window.
+        """
+        if not self.windows:
+            return
+
+        bucket_lists: Dict[str, List[Tuple[int, int, Optional[str]]]] = {
+            k: [] for k in LOC_BUCKET_OVERSAMPLE_KEYS
+        }
+        other_wins: List[Tuple[int, int, Optional[str]]] = []
+        for win in self.windows:
+            b = self._trial_loc_bucket(win[0])
+            if b in bucket_lists:
+                bucket_lists[b].append(win)
+            else:
+                other_wins.append(win)
+
+        present = {k: v for k, v in bucket_lists.items() if len(v) > 0}
+        if len(present) < 2:
+            print(
+                "[KineticsTCNDataset] balance_loc_buckets_oversample: need ≥2 of "
+                f"{LOC_BUCKET_OVERSAMPLE_KEYS} with windows (got {list(present.keys())}); skipping."
+            )
+            return
+
+        target = max(len(v) for v in present.values())
+        seed = self.loc_bucket_balance_seed
+        rng = np.random.default_rng(int(seed) if seed is not None else None)
+
+        balanced: List[Tuple[int, int, Optional[str]]] = []
+        counts_before = {k: len(bucket_lists[k]) for k in LOC_BUCKET_OVERSAMPLE_KEYS}
+        for k in LOC_BUCKET_OVERSAMPLE_KEYS:
+            wins = bucket_lists[k]
+            if not wins:
+                continue
+            n = len(wins)
+            idx = rng.choice(n, size=int(target), replace=True)
+            balanced.extend(wins[i] for i in idx.tolist())
+
+        n_before = len(self.windows)
+        self.windows = balanced + other_wins
+        rng.shuffle(self.windows)
+        n_after = len(self.windows)
+        counts_after = {k: int(target) if counts_before[k] > 0 else 0 for k in LOC_BUCKET_OVERSAMPLE_KEYS}
+        print(
+            "[KineticsTCNDataset] balance_loc_buckets_oversample: "
+            f"per-bucket window counts before {counts_before} → "
+            f"balanced (each non-empty) ≈ {counts_after}; "
+            f"other_bucket_windows={len(other_wins)}; "
+            f"total_windows {n_before} → {n_after} "
+            f"(seed={seed})"
+        )
+
     def __init__(
         self,
         data_dir: Optional[str] = None,
@@ -1285,6 +1536,9 @@ class KineticsTCNDataset(Dataset):
         apply_velocity_lowpass_filter: bool = False,
         velocity_lowpass_cutoff_hz: Optional[float] = None,
         velocity_lowpass_order: Optional[int] = None,
+        balance_loc_buckets_oversample: bool = False,
+        loc_bucket_balance_seed: Optional[int] = None,
+        loc_ascent_descent_map: Optional[str] = None,
     ):
         if data_dir is None:
             raise ValueError("data_dir must point to processed Camargo root")
@@ -1324,6 +1578,15 @@ class KineticsTCNDataset(Dataset):
         self._pair_mom_r: Optional[List[int]] = None
         self._pair_mom_l: Optional[List[int]] = None
         self.levelground_only = bool(levelground_only)
+        self.balance_loc_buckets_oversample = bool(balance_loc_buckets_oversample)
+        self.loc_bucket_balance_seed = (
+            None if loc_bucket_balance_seed is None else int(loc_bucket_balance_seed)
+        )
+        self._loc_bucket_map: Dict[Tuple[str, str, str], str] = (
+            load_loc_ascent_descent_mapping(loc_ascent_descent_map)
+            if loc_ascent_descent_map
+            else {}
+        )
 
         subject_ids_norm: Optional[List[str]] = None
         if subject_ids is not None:
@@ -1566,6 +1829,9 @@ class KineticsTCNDataset(Dataset):
         else:
             self.trial_dirs = valid_trial_dirs
 
+        if self.balance_loc_buckets_oversample:
+            self._apply_loc_bucket_oversample()
+
         n_valid_trials = len(self.h5_trial_refs) if self.use_h5 else len(self.trial_dirs)
         if n_valid_trials == 0:
             raise ValueError(f"No valid trials found in {source_desc}")
@@ -1647,6 +1913,9 @@ class KineticsTCNDataset(Dataset):
         time = time[:n]
         pos = pos[:n]
         id_data = id_data[:n]
+
+        _manifest = Path(self.h5_dir) if self.h5_dir else Path(self.data_dir)
+        pos = _apply_temp_addbiomech_ik_angle_sign_fix(subj_id, pos, _manifest)
 
         moments = np.full((n, len(MOMENT_NAMES)), np.nan, dtype=np.float64)
         for j, name in enumerate(MOMENT_NAMES):

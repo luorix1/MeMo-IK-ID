@@ -30,6 +30,11 @@ Changes vs train.py
    Takes every 2nd IK/ID sample after alignment (~200 Hz → ~100 Hz) with no
    interpolation.
 
+5. **Loc-condition oversampling** (``--balance-loc-buckets-oversample``)
+   Optionally rebalance sliding windows across LG / SA / SD / RA / RD buckets
+   (see ``dataset.classify_loc_bucket``) so each present bucket matches the
+   largest bucket via sampling with replacement. Validation data are unchanged.
+
 Run from ``os_kinetics/``::
 
     python -m ik_id.trainV2 ...
@@ -329,6 +334,25 @@ def main() -> None:
         "--levelground-only", action="store_true",
         help="Use only level-included conditions (levelground, treadmill_normal_walk, etc.)"
     )
+    parser.add_argument(
+        "--balance-loc-buckets-oversample",
+        action="store_true",
+        default=False,
+        help="Oversample training windows so LG, SA, SD, RA, RD (dataset.classify_loc_bucket) each "
+             "contribute equally among buckets present in the train split. Other labels keep one copy.",
+    )
+    parser.add_argument(
+        "--loc-bucket-balance-seed",
+        type=int,
+        default=None,
+        help="RNG seed for loc-bucket oversampling (default: --seed).",
+    )
+    parser.add_argument(
+        "--loc-ascent-descent-map",
+        type=str,
+        default="./jinwoo_addbiomechanics_final_ascent_descent_mapping.json",
+        help="Optional JSON for trial-level SA/SD vs RA/RD (same schema as compare_pipelineV4).",
+    )
 
     # ---- Preprocessing / LPF ----
     parser.add_argument("--lowpass-cutoff-hz", type=float, default=4.0)
@@ -582,9 +606,20 @@ def main() -> None:
     if args.legacy_unilateral_full_window:
         _pair_kw["unilateral_paired_side_windows"] = False
 
-    def _make_ds(files_or_subjects, stride, max_files=None):
+    def _make_ds(files_or_subjects, stride, max_files=None, *, balance_loc_buckets_oversample=False):
         # Keep train/val dataset construction in one place so shared kwargs
         # cannot drift between branches.
+        _loc_bal_kw: Dict[str, Any] = {}
+        if balance_loc_buckets_oversample:
+            _loc_bal_kw = {
+                "balance_loc_buckets_oversample": True,
+                "loc_bucket_balance_seed": (
+                    args.loc_bucket_balance_seed
+                    if args.loc_bucket_balance_seed is not None
+                    else args.seed
+                ),
+                "loc_ascent_descent_map": args.loc_ascent_descent_map,
+            }
         if is_h5_only_layout:
             return KineticsTCNDataset(
                 data_dir=args.train_dir,
@@ -602,6 +637,7 @@ def main() -> None:
                 max_files=max_files,
                 **_pair_kw,
                 **ds_denoise_kw,
+                **_loc_bal_kw,
             )
         return KineticsTCNDataset(
             data_dir=args.train_dir,
@@ -616,9 +652,15 @@ def main() -> None:
             laterality=args.laterality,
             **_pair_kw,
             **ds_denoise_kw,
+            **_loc_bal_kw,
         )
 
-    train_ds = _make_ds(train_files, args.stride, args.max_train_files)
+    train_ds = _make_ds(
+        train_files,
+        args.stride,
+        args.max_train_files,
+        balance_loc_buckets_oversample=args.balance_loc_buckets_oversample,
+    )
     _write_run_metadata_json(
         out_dir,
         args,
