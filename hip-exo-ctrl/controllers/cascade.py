@@ -280,7 +280,8 @@ class CascadeHip(BaseController):
         pelvis_gyr_y = np.deg2rad(float(s.imu_P[4]))
 
         # ---- right side (positive convention) ----
-        enc_r_raw = float(s.pos_R)
+        # FIXME: temporary sign flip — remove once encoder sign is verified on hardware
+        enc_r_raw = -float(s.pos_R)
         vel_r_raw = np.deg2rad(float(s.imu_R[4])) - pelvis_gyr_y
 
         # ---- left side (sign-corrected to match right convention) ----
