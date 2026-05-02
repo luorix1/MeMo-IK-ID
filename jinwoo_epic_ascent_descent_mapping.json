@@ -1,0 +1,129 @@
+{
+  "dataset": "/media/metamobility3/Samsung_T51/Processed/Jinwoo_EPIC",
+  "subject_range": [
+    "S035",
+    "S056"
+  ],
+  "source": [
+    "os-biomechanics-preprocessing/molinaro_scherpereel/conditions.json",
+    "/media/metamobility3/Samsung_T51/Processed/Jinwoo_EPIC/S035.h5 ... S056.h5"
+  ],
+  "mapping_rule": {
+    "stairs_1": "odd trial_NN -> ascent, even trial_NN -> descent",
+    "stair_bundle2": "odd trial_NN -> ascent, even trial_NN -> descent",
+    "incline_walk": "odd trial_NN -> ascent, even trial_NN -> descent",
+    "incline_treadmill_bundle1": "odd trial_NN -> ascent, even trial_NN -> descent",
+    "incline_treadmill_bundle2": "odd trial_NN -> ascent, even trial_NN -> descent"
+  },
+  "subjects": {
+    "S035": {
+      "stairs_1": 10,
+      "stair_bundle2": 22,
+      "incline_walk": 4,
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S036": {
+      "stairs_1": 10,
+      "stair_bundle2": 10,
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3
+    },
+    "S037": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3
+    },
+    "S038": {
+      "stairs_1": 10,
+      "stair_bundle2": 10,
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2
+    },
+    "S039": {
+      "stairs_1": 10,
+      "stair_bundle2": 12,
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3
+    },
+    "S040": {
+      "stairs_1": 10,
+      "stair_bundle2": 10,
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3
+    },
+    "S041": {
+      "stairs_1": 10,
+      "stair_bundle2": 10,
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3
+    },
+    "S042": {
+      "stairs_1": 10,
+      "stair_bundle2": 12,
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2
+    },
+    "S043": {
+      "stairs_1": 10,
+      "stair_bundle2": 10,
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3
+    },
+    "S044": {
+      "stairs_1": 10,
+      "stair_bundle2": 10,
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2
+    },
+    "S045": {
+      "stair_bundle2": 12,
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 1
+    },
+    "S046": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S047": {
+      "incline_treadmill_bundle2": 1
+    },
+    "S048": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S049": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S050": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S051": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S052": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S053": {
+      "stair_bundle2": 12,
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S054": {
+      "incline_treadmill_bundle2": 1
+    },
+    "S055": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    },
+    "S056": {
+      "stair_bundle2": 12,
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1
+    }
+  },
+  "usage": "For a condition with N trials, ascent trials are trial_01, trial_03, ... <= N and descent trials are trial_02, trial_04, ... <= N."
+}

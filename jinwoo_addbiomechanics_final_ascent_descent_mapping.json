@@ -1,0 +1,3597 @@
+{
+  "dataset": "/media/metamobility3/Samsung_T5/Processed/AddBiomechanics_final",
+  "generated_utc": "2026-05-01T23:50:13Z",
+  "subject_range_with_ambiguous_map_entries": [
+    "S001",
+    "S056"
+  ],
+  "merged_from": [
+    "os_kinetics/jinwoo_epic_ascent_descent_mapping.json (EPIC S035-S056 counts preserved for overlapping odd/even rows).",
+    "Enumerated all non-excluded S*.h5 with dataset.include_condition_for_dataset(walking_only=True, levelground_only=False).",
+    "subject_condition_trial_max_index lists every included condition with trial groups for all subjects (Camargo S001-S056 + AddBiomechanics public S057+)."
+  ],
+  "dataset_filters": {
+    "walking_only": true,
+    "levelground_only": false,
+    "excluded_subject_bands_match_dataset_py": [
+      "S386-S426",
+      "S444-S493",
+      "S513-S522"
+    ],
+    "s001_s056_condition_filter": "dataset.is_walking_condition (excludes condition names containing static, dynamic, or backward)",
+    "s057_plus_condition_filter": "All non-metadata condition groups are included (dataset.include_condition_for_dataset). LG vs RA/RD for slopes/walks uses dataset.classify_loc_bucket (uphillrun/downhillrun/flatrun/walk_/etc.)."
+  },
+  "all_subjects_non_excluded": [
+    "S001",
+    "S002",
+    "S003",
+    "S004",
+    "S005",
+    "S006",
+    "S007",
+    "S008",
+    "S009",
+    "S010",
+    "S011",
+    "S012",
+    "S013",
+    "S014",
+    "S015",
+    "S016",
+    "S017",
+    "S018",
+    "S019",
+    "S020",
+    "S021",
+    "S022",
+    "S023",
+    "S024",
+    "S025",
+    "S026",
+    "S027",
+    "S028",
+    "S029",
+    "S030",
+    "S031",
+    "S032",
+    "S033",
+    "S034",
+    "S035",
+    "S036",
+    "S037",
+    "S038",
+    "S039",
+    "S040",
+    "S041",
+    "S042",
+    "S043",
+    "S044",
+    "S045",
+    "S046",
+    "S047",
+    "S048",
+    "S049",
+    "S050",
+    "S051",
+    "S052",
+    "S053",
+    "S054",
+    "S055",
+    "S056",
+    "S057",
+    "S058",
+    "S059",
+    "S060",
+    "S061",
+    "S063",
+    "S064",
+    "S065",
+    "S066",
+    "S067",
+    "S069",
+    "S070",
+    "S071",
+    "S072",
+    "S073",
+    "S074",
+    "S075",
+    "S076",
+    "S077",
+    "S078",
+    "S079",
+    "S081",
+    "S082",
+    "S083",
+    "S084",
+    "S085",
+    "S086",
+    "S088",
+    "S089",
+    "S090",
+    "S091",
+    "S092",
+    "S093",
+    "S095",
+    "S096",
+    "S097",
+    "S098",
+    "S099",
+    "S100",
+    "S102",
+    "S103",
+    "S104",
+    "S105",
+    "S106",
+    "S107",
+    "S108",
+    "S109",
+    "S110",
+    "S111",
+    "S112",
+    "S113",
+    "S115",
+    "S116",
+    "S117",
+    "S118",
+    "S119",
+    "S120",
+    "S122",
+    "S123",
+    "S124",
+    "S125",
+    "S126",
+    "S127",
+    "S129",
+    "S130",
+    "S131",
+    "S132",
+    "S133",
+    "S134",
+    "S136",
+    "S137",
+    "S138",
+    "S139",
+    "S140",
+    "S141",
+    "S143",
+    "S144",
+    "S145",
+    "S146",
+    "S147",
+    "S148",
+    "S149",
+    "S150",
+    "S151",
+    "S152",
+    "S153",
+    "S154",
+    "S156",
+    "S157",
+    "S158",
+    "S159",
+    "S160",
+    "S161",
+    "S162",
+    "S163",
+    "S164",
+    "S165",
+    "S166",
+    "S168",
+    "S169",
+    "S170",
+    "S171",
+    "S172",
+    "S173",
+    "S174",
+    "S175",
+    "S176",
+    "S177",
+    "S178",
+    "S180",
+    "S181",
+    "S182",
+    "S183",
+    "S184",
+    "S185",
+    "S187",
+    "S188",
+    "S189",
+    "S190",
+    "S191",
+    "S192",
+    "S194",
+    "S195",
+    "S196",
+    "S197",
+    "S198",
+    "S199",
+    "S201",
+    "S202",
+    "S203",
+    "S204",
+    "S205",
+    "S206",
+    "S207",
+    "S208",
+    "S209",
+    "S210",
+    "S211",
+    "S212",
+    "S214",
+    "S215",
+    "S216",
+    "S217",
+    "S218",
+    "S220",
+    "S221",
+    "S222",
+    "S223",
+    "S224",
+    "S225",
+    "S227",
+    "S228",
+    "S229",
+    "S230",
+    "S231",
+    "S232",
+    "S234",
+    "S235",
+    "S236",
+    "S237",
+    "S238",
+    "S239",
+    "S241",
+    "S242",
+    "S243",
+    "S244",
+    "S245",
+    "S246",
+    "S248",
+    "S249",
+    "S250",
+    "S251",
+    "S252",
+    "S253",
+    "S255",
+    "S256",
+    "S257",
+    "S258",
+    "S259",
+    "S261",
+    "S262",
+    "S263",
+    "S264",
+    "S265",
+    "S266",
+    "S268",
+    "S269",
+    "S270",
+    "S271",
+    "S272",
+    "S274",
+    "S275",
+    "S276",
+    "S277",
+    "S278",
+    "S279",
+    "S281",
+    "S282",
+    "S284",
+    "S285",
+    "S286",
+    "S287",
+    "S288",
+    "S289",
+    "S291",
+    "S292",
+    "S293",
+    "S294",
+    "S295",
+    "S296",
+    "S298",
+    "S299",
+    "S300",
+    "S301",
+    "S302",
+    "S303",
+    "S305",
+    "S306",
+    "S307",
+    "S308",
+    "S309",
+    "S310",
+    "S312",
+    "S313",
+    "S314",
+    "S315",
+    "S316",
+    "S317",
+    "S319",
+    "S320",
+    "S321",
+    "S322",
+    "S323",
+    "S324",
+    "S326",
+    "S327",
+    "S328",
+    "S329",
+    "S330",
+    "S331",
+    "S332",
+    "S333",
+    "S334",
+    "S335",
+    "S337",
+    "S338",
+    "S339",
+    "S340",
+    "S341",
+    "S342",
+    "S344",
+    "S345",
+    "S346",
+    "S347",
+    "S348",
+    "S349",
+    "S350",
+    "S351",
+    "S352",
+    "S353",
+    "S354",
+    "S355",
+    "S357",
+    "S358",
+    "S359",
+    "S360",
+    "S361",
+    "S362",
+    "S364",
+    "S365",
+    "S366",
+    "S367",
+    "S368",
+    "S369",
+    "S370",
+    "S371",
+    "S372",
+    "S373",
+    "S374",
+    "S375",
+    "S376",
+    "S378",
+    "S379",
+    "S380",
+    "S381",
+    "S382",
+    "S383",
+    "S385",
+    "S427",
+    "S428",
+    "S429",
+    "S430",
+    "S431",
+    "S432",
+    "S433",
+    "S434",
+    "S435",
+    "S436",
+    "S437",
+    "S438",
+    "S439",
+    "S440",
+    "S441",
+    "S442",
+    "S443",
+    "S494",
+    "S495",
+    "S496",
+    "S497",
+    "S498",
+    "S499",
+    "S500",
+    "S501",
+    "S502",
+    "S503",
+    "S504",
+    "S505",
+    "S506",
+    "S507",
+    "S508",
+    "S509",
+    "S510",
+    "S511",
+    "S512"
+  ],
+  "n_all_subjects_non_excluded": 380,
+  "subject_condition_trial_max_index": {
+    "S001": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 26,
+      "incline_ramp_2_l": 36,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 36,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 36,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 26,
+      "levelground_ccw_normal": 25,
+      "levelground_ccw_slow": 30,
+      "levelground_cw_fast": 28,
+      "levelground_cw_normal": 25,
+      "levelground_cw_slow": 26,
+      "stair_1_l": 36,
+      "stair_1_r": 35,
+      "stair_2_l": 36,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 31,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 8
+    },
+    "S002": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 55,
+      "incline_ramp_2_l": 38,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 45,
+      "incline_ramp_5_l": 36,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 42,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 30,
+      "levelground_ccw_normal": 34,
+      "levelground_ccw_slow": 32,
+      "levelground_cw_fast": 27,
+      "levelground_cw_normal": 27,
+      "levelground_cw_slow": 38,
+      "stair_1_l": 30,
+      "stair_1_r": 31,
+      "stair_2_l": 30,
+      "stair_2_r": 43,
+      "stair_3_l": 30,
+      "stair_3_r": 35,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 9
+    },
+    "S003": {
+      "incline_ramp_1_l": 31,
+      "incline_ramp_1_r": 31,
+      "incline_ramp_2_l": 31,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 26,
+      "levelground_ccw_normal": 30,
+      "levelground_ccw_slow": 64,
+      "levelground_cw_fast": 27,
+      "levelground_cw_normal": 20,
+      "levelground_cw_slow": 23,
+      "stair_1_l": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S004": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 36,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 31,
+      "incline_ramp_5_l": 31,
+      "incline_ramp_5_r": 31,
+      "incline_ramp_6_l": 40,
+      "incline_ramp_6_r": 36,
+      "levelground_ccw_fast": 32,
+      "levelground_ccw_normal": 23,
+      "levelground_ccw_slow": 46,
+      "levelground_cw_fast": 23,
+      "levelground_cw_normal": 25,
+      "levelground_cw_slow": 42,
+      "stair_1_l": 36,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S005": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 36,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 36,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 28,
+      "levelground_ccw_normal": 30,
+      "levelground_ccw_slow": 26,
+      "levelground_cw_fast": 28,
+      "levelground_cw_normal": 25,
+      "levelground_cw_slow": 29,
+      "stair_1_l": 30,
+      "stair_1_r": 42,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 36,
+      "stair_3_r": 36,
+      "stair_4_l": 36,
+      "stair_4_r": 31,
+      "treadmill_unspecified_speed": 7
+    },
+    "S006": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 40,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 46,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 36,
+      "incline_ramp_6_l": 36,
+      "incline_ramp_6_r": 24,
+      "levelground_ccw_fast": 35,
+      "levelground_ccw_normal": 37,
+      "levelground_ccw_slow": 19,
+      "levelground_cw_fast": 29,
+      "levelground_cw_normal": 24,
+      "levelground_cw_slow": 26,
+      "stair_1_l": 48,
+      "stair_1_r": 33,
+      "stair_2_l": 31,
+      "stair_2_r": 34,
+      "stair_3_l": 30,
+      "stair_3_r": 31,
+      "stair_4_l": 32,
+      "stair_4_r": 37,
+      "treadmill_unspecified_speed": 7
+    },
+    "S007": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 36,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 36,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 36,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 34,
+      "levelground_ccw_normal": 23,
+      "levelground_ccw_slow": 22,
+      "levelground_cw_fast": 26,
+      "levelground_cw_normal": 29,
+      "levelground_cw_slow": 26,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 27,
+      "stair_2_r": 42,
+      "stair_3_l": 32,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 36,
+      "treadmill_unspecified_speed": 7
+    },
+    "S008": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 36,
+      "incline_ramp_2_l": 48,
+      "incline_ramp_2_r": 42,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 31,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 45,
+      "levelground_ccw_normal": 30,
+      "levelground_ccw_slow": 33,
+      "levelground_cw_fast": 26,
+      "levelground_cw_normal": 24,
+      "levelground_cw_slow": 28,
+      "stair_1_l": 31,
+      "stair_1_r": 24,
+      "stair_2_l": 30,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 32,
+      "stair_4_l": 30,
+      "stair_4_r": 31,
+      "treadmill_unspecified_speed": 7
+    },
+    "S009": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 48,
+      "incline_ramp_6_l": 36,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 28,
+      "levelground_ccw_normal": 27,
+      "levelground_ccw_slow": 22,
+      "levelground_cw_fast": 26,
+      "levelground_cw_normal": 20,
+      "levelground_cw_slow": 40,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S010": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 36,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 36,
+      "incline_ramp_3_r": 36,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 26,
+      "levelground_ccw_normal": 27,
+      "levelground_ccw_slow": 29,
+      "levelground_cw_fast": 29,
+      "levelground_cw_normal": 12,
+      "levelground_cw_slow": 8,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 36,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S011": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 36,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 36,
+      "levelground_ccw_fast": 24,
+      "levelground_ccw_normal": 33,
+      "levelground_ccw_slow": 33,
+      "levelground_cw_fast": 29,
+      "levelground_cw_normal": 30,
+      "levelground_cw_slow": 41,
+      "stair_1_l": 31,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 31,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S012": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 31,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 36,
+      "levelground_ccw_fast": 12,
+      "levelground_ccw_normal": 24,
+      "levelground_ccw_slow": 24,
+      "levelground_cw_fast": 16,
+      "levelground_cw_normal": 20,
+      "levelground_cw_slow": 25,
+      "stair_1_l": 37,
+      "stair_1_r": 32,
+      "stair_2_l": 31,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 36,
+      "stair_4_l": 36,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S013": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 31,
+      "incline_ramp_2_l": 36,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 31,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 36,
+      "incline_ramp_4_r": 36,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 42,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 21,
+      "levelground_ccw_normal": 25,
+      "levelground_ccw_slow": 24,
+      "levelground_cw_fast": 41,
+      "levelground_cw_normal": 27,
+      "levelground_cw_slow": 25,
+      "stair_1_l": 31,
+      "stair_1_r": 30,
+      "stair_2_l": 31,
+      "stair_2_r": 31,
+      "stair_3_l": 48,
+      "stair_3_r": 30,
+      "stair_4_l": 37,
+      "stair_4_r": 36,
+      "treadmill_unspecified_speed": 7
+    },
+    "S014": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 42,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 42,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 36,
+      "levelground_ccw_fast": 26,
+      "levelground_ccw_normal": 27,
+      "levelground_ccw_slow": 29,
+      "levelground_cw_fast": 24,
+      "levelground_cw_normal": 26,
+      "levelground_cw_slow": 31,
+      "stair_1_l": 30,
+      "stair_1_r": 34,
+      "stair_2_l": 31,
+      "stair_2_r": 39,
+      "stair_3_l": 30,
+      "stair_3_r": 31,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S015": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 36,
+      "incline_ramp_2_r": 36,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 29,
+      "levelground_ccw_fast": 11,
+      "levelground_ccw_normal": 10,
+      "levelground_ccw_slow": 16,
+      "levelground_cw_fast": 4,
+      "levelground_cw_normal": 6,
+      "levelground_cw_slow": 6,
+      "stair_1_l": 36,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 38,
+      "stair_3_l": 36,
+      "stair_3_r": 37,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S016": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 36,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 39,
+      "incline_ramp_5_l": 36,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 44,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 27,
+      "levelground_ccw_normal": 22,
+      "levelground_ccw_slow": 26,
+      "levelground_cw_fast": 14,
+      "levelground_cw_normal": 23,
+      "levelground_cw_slow": 22,
+      "stair_1_l": 30,
+      "stair_1_r": 31,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 37,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S017": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 36,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 36,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 31,
+      "incline_ramp_6_r": 37,
+      "levelground_ccw_fast": 35,
+      "levelground_ccw_normal": 27,
+      "levelground_ccw_slow": 31,
+      "levelground_cw_fast": 36,
+      "levelground_cw_normal": 29,
+      "levelground_cw_slow": 25,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 43,
+      "treadmill_unspecified_speed": 7
+    },
+    "S018": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 36,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 36,
+      "incline_ramp_6_l": 24,
+      "incline_ramp_6_r": 36,
+      "levelground_ccw_fast": 29,
+      "levelground_ccw_normal": 33,
+      "levelground_ccw_slow": 34,
+      "levelground_cw_fast": 25,
+      "levelground_cw_normal": 20,
+      "levelground_cw_slow": 22,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S019": {
+      "LevelGround": 157,
+      "Stair": 246,
+      "levelground_cw_normal": 37,
+      "treadmill_unspecified_speed": 7
+    },
+    "S020": {
+      "LevelGround": 103,
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 36,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 36,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_normal": 28,
+      "levelground_ccw_slow": 10,
+      "levelground_cw_fast": 23,
+      "stair_1_l": 31,
+      "stair_1_r": 38,
+      "stair_2_l": 37,
+      "stair_2_r": 32,
+      "stair_3_l": 39,
+      "stair_3_r": 31,
+      "stair_4_l": 32,
+      "stair_4_r": 33,
+      "treadmill_unspecified_speed": 7
+    },
+    "S021": {
+      "LevelGround": 143,
+      "Stair": 247,
+      "levelground_cw_fast": 26,
+      "treadmill_unspecified_speed": 7
+    },
+    "S022": {
+      "incline_ramp_1_l": 31,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 48,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 31,
+      "incline_ramp_6_l": 38,
+      "incline_ramp_6_r": 30,
+      "levelground_ccw_fast": 32,
+      "levelground_ccw_normal": 31,
+      "levelground_ccw_slow": 29,
+      "levelground_cw_fast": 42,
+      "levelground_cw_normal": 25,
+      "levelground_cw_slow": 25,
+      "stair_1_l": 31,
+      "stair_1_r": 35,
+      "stair_2_l": 52,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30,
+      "treadmill_unspecified_speed": 7
+    },
+    "S023": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 4,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 3,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S024": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_11_up": 1,
+      "stair_12_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 1,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S025": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 1,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S026": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1
+    },
+    "S027": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 1,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S028": {
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_meander": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1
+    },
+    "S029": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 1,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S030": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 1,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S031": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_start_stop": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S032": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_start_stop": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 1,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S033": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_start_stop": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_11_up": 1,
+      "stair_12_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 1,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S034": {
+      "incline_treadmill_down10deg": 1,
+      "incline_treadmill_down5deg": 1,
+      "incline_treadmill_up10deg": 1,
+      "incline_treadmill_up5deg": 1,
+      "levelground_curb_down": 1,
+      "levelground_curb_up": 1,
+      "levelground_cut_left_fast": 1,
+      "levelground_cut_left_slow": 1,
+      "levelground_cut_right_fast": 1,
+      "levelground_cut_right_slow": 1,
+      "levelground_heel_walk_0p4mps": 1,
+      "levelground_meander": 1,
+      "levelground_start_stop": 1,
+      "levelground_toe_walk_0p4mps": 1,
+      "levelground_turn_step_left": 1,
+      "levelground_turn_step_right": 1,
+      "stair_10_down": 1,
+      "stair_1_up": 1,
+      "stair_2_down": 1,
+      "stair_3_up": 1,
+      "stair_4_down": 1,
+      "stair_5_up": 1,
+      "stair_6_down": 1,
+      "stair_7_up": 1,
+      "stair_8_down": 1,
+      "stair_9_up": 1,
+      "treadmill_0p6mps": 1,
+      "treadmill_1p2mps": 1,
+      "treadmill_1p8mps": 1,
+      "treadmill_2p0mps": 1,
+      "treadmill_2p5mps": 1,
+      "treadmill_calisthenics_butt_kicks": 1,
+      "treadmill_calisthenics_high_knees": 1,
+      "treadmill_obstacle_1p0mps": 1,
+      "treadmill_shuffle_0p4mps": 1,
+      "treadmill_skip_1p2mps": 1,
+      "treadmill_weighted_25lb": 1
+    },
+    "S035": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "incline_walk": 4,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "stair_bundle2": 22,
+      "stairs_1": 10
+    },
+    "S036": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "levelground_curb_down_bundle1": 3,
+      "levelground_curb_up_bundle1": 3,
+      "stair_bundle2": 10,
+      "stair_bundle3": 12,
+      "stairs_1": 10,
+      "treadmill_normal_walk_bundle1": 5
+    },
+    "S037": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "levelground_curb_down_bundle1": 2,
+      "levelground_curb_up_bundle1": 2,
+      "stairs_1_1": 10,
+      "stairs_2_1": 10,
+      "treadmill_normal_walk_bundle1": 3,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S038": {
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2,
+      "levelground_curb_down_bundle1": 2,
+      "levelground_curb_up_bundle1": 2,
+      "stair_bundle2": 10,
+      "stairs_1": 10,
+      "treadmill_normal_walk_bundle1": 2,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S039": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "levelground_curb_down_bundle1": 2,
+      "levelground_curb_up_bundle1": 2,
+      "stair_bundle2": 12,
+      "stairs_1": 10,
+      "treadmill_normal_walk_bundle1": 2
+    },
+    "S040": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "levelground_curb_down_bundle1": 2,
+      "levelground_curb_up_bundle1": 2,
+      "stair_bundle2": 10,
+      "stairs_1": 10,
+      "treadmill_normal_walk_bundle1": 3
+    },
+    "S041": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "levelground_curb_down_bundle1": 2,
+      "levelground_curb_up_bundle1": 2,
+      "stair_bundle2": 10,
+      "stairs_1": 10,
+      "treadmill_normal_walk_bundle1": 3
+    },
+    "S042": {
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2,
+      "levelground_curb_down_bundle1": 2,
+      "levelground_curb_up_bundle1": 2,
+      "stair_bundle2": 12,
+      "stairs_1": 10,
+      "treadmill_normal_walk_bundle1": 2
+    },
+    "S043": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "levelground_curb_down_bundle1": 2,
+      "levelground_curb_up_bundle1": 2,
+      "stair_bundle2": 10,
+      "stairs_1": 10,
+      "treadmill_normal_walk_bundle1": 3
+    },
+    "S044": {
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2,
+      "levelground_curb_down_bundle1": 2,
+      "levelground_curb_up_bundle1": 2,
+      "stair_bundle2": 10,
+      "stairs_1": 10,
+      "treadmill_normal_walk_bundle1": 3
+    },
+    "S045": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 2,
+      "levelground_cutting_bundle1": 2,
+      "levelground_meander_bundle1": 2,
+      "levelground_start_stop_bundle1": 2,
+      "levelground_turn_step_bundle1": 2,
+      "stair_bundle2": 12,
+      "stairs_1_1": 12,
+      "treadmill_normal_walk_bundle1": 2,
+      "treadmill_obstacle_bundle1": 2,
+      "treadmill_weighted_bundle1": 2
+    },
+    "S046": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stairs_1_1": 9,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S047": {
+      "incline_treadmill_bundle2": 1,
+      "incline_walk_3": 1,
+      "incline_walk_4": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stairs_1_1": 10,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S048": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stairs_1_1": 10,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S049": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stairs_1_1": 10,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S050": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stair_bundle3": 12,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S051": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stair_bundle3": 12,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S052": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stair_bundle3": 12,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S053": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stair_bundle2": 12,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S054": {
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1
+    },
+    "S055": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stair_bundle3": 12,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S056": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "levelground_curb_down_bundle1": 1,
+      "levelground_curb_up_bundle1": 1,
+      "levelground_cutting_bundle1": 1,
+      "levelground_meander_bundle1": 1,
+      "levelground_start_stop_bundle1": 1,
+      "levelground_turn_step_bundle1": 1,
+      "stair_bundle2": 12,
+      "treadmill_normal_walk_bundle1": 1,
+      "treadmill_obstacle_bundle1": 1,
+      "treadmill_weighted_bundle1": 1
+    },
+    "S057": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S058": {
+      "flatrun_fast_1": 15
+    },
+    "S059": {
+      "flatrun_fixed_1": 23
+    },
+    "S060": {
+      "flatrun_norm_1": 38
+    },
+    "S061": {
+      "flatrun_slow_1": 15
+    },
+    "S063": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S064": {
+      "flatrun_fast_1": 15
+    },
+    "S065": {
+      "flatrun_fixed_1": 23
+    },
+    "S066": {
+      "flatrun_norm_1": 38
+    },
+    "S067": {
+      "flatrun_slow_1": 15
+    },
+    "S069": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S070": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S071": {
+      "flatrun_fast_1": 15
+    },
+    "S072": {
+      "flatrun_fixed_1": 23
+    },
+    "S073": {
+      "flatrun_norm_1": 38
+    },
+    "S074": {
+      "flatrun_slow_1": 15
+    },
+    "S075": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S076": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S077": {
+      "flatrun_fast_1": 15
+    },
+    "S078": {
+      "flatrun_norm_1": 38
+    },
+    "S079": {
+      "flatrun_slow_1": 15
+    },
+    "S081": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S082": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S083": {
+      "flatrun_fast_1": 15
+    },
+    "S084": {
+      "flatrun_fixed_1": 23
+    },
+    "S085": {
+      "flatrun_norm_1": 38
+    },
+    "S086": {
+      "flatrun_slow_1": 15
+    },
+    "S088": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S089": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S090": {
+      "flatrun_fast_1": 15
+    },
+    "S091": {
+      "flatrun_fixed_1": 8
+    },
+    "S092": {
+      "flatrun_norm_1": 38
+    },
+    "S093": {
+      "flatrun_slow_1": 15
+    },
+    "S095": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S096": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S097": {
+      "flatrun_fast_1": 15
+    },
+    "S098": {
+      "flatrun_fixed_1": 23
+    },
+    "S099": {
+      "flatrun_norm_1": 38
+    },
+    "S100": {
+      "flatrun_slow_1": 15
+    },
+    "S102": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S103": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S104": {
+      "flatrun_fast_1": 15
+    },
+    "S105": {
+      "flatrun_fixed_1": 23
+    },
+    "S106": {
+      "flatrun_norm_1": 38
+    },
+    "S107": {
+      "flatrun_slow_1": 15
+    },
+    "S108": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S109": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S110": {
+      "flatrun_fast_1": 15
+    },
+    "S111": {
+      "flatrun_fixed_1": 23
+    },
+    "S112": {
+      "flatrun_norm_1": 38
+    },
+    "S113": {
+      "flatrun_slow_1": 15
+    },
+    "S115": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S116": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S117": {
+      "flatrun_fast_1": 15
+    },
+    "S118": {
+      "flatrun_fixed_1": 23
+    },
+    "S119": {
+      "flatrun_norm_1": 38
+    },
+    "S120": {
+      "flatrun_slow_1": 15
+    },
+    "S122": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S123": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S124": {
+      "flatrun_fast_1": 15
+    },
+    "S125": {
+      "flatrun_fixed_1": 23
+    },
+    "S126": {
+      "flatrun_norm_1": 38
+    },
+    "S127": {
+      "flatrun_slow_1": 15
+    },
+    "S129": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S130": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S131": {
+      "flatrun_fast_1": 15
+    },
+    "S132": {
+      "flatrun_fixed_1": 23
+    },
+    "S133": {
+      "flatrun_norm_1": 38
+    },
+    "S134": {
+      "flatrun_slow_1": 15
+    },
+    "S136": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S137": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S138": {
+      "flatrun_fast_1": 15
+    },
+    "S139": {
+      "flatrun_fixed_1": 23
+    },
+    "S140": {
+      "flatrun_norm_1": 38
+    },
+    "S141": {
+      "flatrun_slow_1": 15
+    },
+    "S143": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S144": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S145": {
+      "flatrun_fast_1": 15
+    },
+    "S146": {
+      "flatrun_fixed_1": 23
+    },
+    "S147": {
+      "flatrun_norm_1": 38
+    },
+    "S148": {
+      "flatrun_slow_1": 15
+    },
+    "S149": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S150": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S151": {
+      "flatrun_fast_1": 15
+    },
+    "S152": {
+      "flatrun_fixed_1": 23
+    },
+    "S153": {
+      "flatrun_norm_1": 38
+    },
+    "S154": {
+      "flatrun_slow_1": 15
+    },
+    "S156": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S157": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S158": {
+      "flatrun_fast_1": 15
+    },
+    "S159": {
+      "flatrun_fixed_1": 23
+    },
+    "S160": {
+      "flatrun_norm_1": 38
+    },
+    "S161": {
+      "flatrun_slow_1": 15
+    },
+    "S162": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S163": {
+      "flatrun_fast_1": 15
+    },
+    "S164": {
+      "flatrun_fixed_1": 23
+    },
+    "S165": {
+      "flatrun_norm_1": 38
+    },
+    "S166": {
+      "flatrun_slow_1": 15
+    },
+    "S168": {
+      "uphillrun_slow_1": 15
+    },
+    "S169": {
+      "flatrun_fast_1": 15
+    },
+    "S170": {
+      "flatrun_fixed_1": 23
+    },
+    "S171": {
+      "flatrun_norm_1": 38
+    },
+    "S172": {
+      "downhillrun_fast_1": 4,
+      "downhillrun_norm_1": 3,
+      "downhillrun_slow_1": 2
+    },
+    "S173": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S174": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S175": {
+      "flatrun_fast_1": 15
+    },
+    "S176": {
+      "flatrun_fixed_1": 23
+    },
+    "S177": {
+      "flatrun_norm_1": 38
+    },
+    "S178": {
+      "flatrun_slow_1": 15
+    },
+    "S180": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S181": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S182": {
+      "flatrun_fast_1": 15
+    },
+    "S183": {
+      "flatrun_fixed_1": 23
+    },
+    "S184": {
+      "flatrun_norm_1": 38
+    },
+    "S185": {
+      "flatrun_slow_1": 15
+    },
+    "S187": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S188": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S189": {
+      "flatrun_fast_1": 15
+    },
+    "S190": {
+      "flatrun_fixed_1": 23
+    },
+    "S191": {
+      "flatrun_norm_1": 38
+    },
+    "S192": {
+      "flatrun_slow_1": 15
+    },
+    "S194": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S195": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S196": {
+      "flatrun_fast_1": 15
+    },
+    "S197": {
+      "flatrun_fixed_1": 23
+    },
+    "S198": {
+      "flatrun_norm_1": 38
+    },
+    "S199": {
+      "flatrun_slow_1": 15
+    },
+    "S201": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S202": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S203": {
+      "flatrun_fast_1": 15
+    },
+    "S204": {
+      "flatrun_fixed_1": 23
+    },
+    "S205": {
+      "flatrun_norm_1": 38
+    },
+    "S206": {
+      "flatrun_slow_1": 15
+    },
+    "S207": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S208": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S209": {
+      "flatrun_fast_1": 15
+    },
+    "S210": {
+      "flatrun_fixed_1": 23
+    },
+    "S211": {
+      "flatrun_norm_1": 38
+    },
+    "S212": {
+      "flatrun_slow_1": 15
+    },
+    "S214": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S215": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S216": {
+      "flatrun_fast_1": 15
+    },
+    "S217": {
+      "flatrun_norm_1": 38
+    },
+    "S218": {
+      "flatrun_slow_1": 15
+    },
+    "S220": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S221": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S222": {
+      "flatrun_fast_1": 15
+    },
+    "S223": {
+      "flatrun_fixed_1": 23
+    },
+    "S224": {
+      "flatrun_norm_1": 38
+    },
+    "S225": {
+      "flatrun_slow_1": 15
+    },
+    "S227": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S228": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S229": {
+      "flatrun_fast_1": 15
+    },
+    "S230": {
+      "flatrun_fixed_1": 23
+    },
+    "S231": {
+      "flatrun_norm_1": 38
+    },
+    "S232": {
+      "flatrun_slow_1": 15
+    },
+    "S234": {
+      "uphillrun_norm_1": 14,
+      "uphillrun_slow_1": 15
+    },
+    "S235": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S236": {
+      "flatrun_fast_1": 15
+    },
+    "S237": {
+      "flatrun_fixed_1": 23
+    },
+    "S238": {
+      "flatrun_norm_1": 38
+    },
+    "S239": {
+      "flatrun_slow_1": 15
+    },
+    "S241": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S242": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S243": {
+      "flatrun_fast_1": 15
+    },
+    "S244": {
+      "flatrun_fixed_1": 23
+    },
+    "S245": {
+      "flatrun_norm_1": 38
+    },
+    "S246": {
+      "flatrun_slow_1": 15
+    },
+    "S248": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S249": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S250": {
+      "flatrun_fast_1": 15
+    },
+    "S251": {
+      "flatrun_fixed_1": 23
+    },
+    "S252": {
+      "flatrun_norm_1": 38
+    },
+    "S253": {
+      "flatrun_slow_1": 15
+    },
+    "S255": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S256": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S257": {
+      "flatrun_fast_1": 15
+    },
+    "S258": {
+      "flatrun_norm_1": 38
+    },
+    "S259": {
+      "flatrun_slow_1": 15
+    },
+    "S261": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S262": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S263": {
+      "flatrun_fast_1": 15
+    },
+    "S264": {
+      "flatrun_fixed_1": 23
+    },
+    "S265": {
+      "flatrun_norm_1": 38
+    },
+    "S266": {
+      "flatrun_slow_1": 15
+    },
+    "S268": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S269": {
+      "flatrun_fast_1": 15
+    },
+    "S270": {
+      "flatrun_fixed_1": 23
+    },
+    "S271": {
+      "flatrun_norm_1": 38
+    },
+    "S272": {
+      "flatrun_slow_1": 15
+    },
+    "S274": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S275": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S276": {
+      "flatrun_fast_1": 15
+    },
+    "S277": {
+      "flatrun_fixed_1": 23
+    },
+    "S278": {
+      "flatrun_norm_1": 38
+    },
+    "S279": {
+      "flatrun_slow_1": 15
+    },
+    "S281": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S282": {
+      "flatrun_fast_1": 15
+    },
+    "S284": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S285": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S286": {
+      "flatrun_fast_1": 15
+    },
+    "S287": {
+      "flatrun_fixed_1": 23
+    },
+    "S288": {
+      "flatrun_norm_1": 38
+    },
+    "S289": {
+      "flatrun_slow_1": 15
+    },
+    "S291": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S292": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S293": {
+      "flatrun_fast_1": 15
+    },
+    "S294": {
+      "flatrun_fixed_1": 23
+    },
+    "S295": {
+      "flatrun_norm_1": 38
+    },
+    "S296": {
+      "flatrun_slow_1": 15
+    },
+    "S298": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S299": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S300": {
+      "flatrun_fast_1": 15
+    },
+    "S301": {
+      "flatrun_fixed_1": 23
+    },
+    "S302": {
+      "flatrun_norm_1": 38
+    },
+    "S303": {
+      "flatrun_slow_1": 15
+    },
+    "S305": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S306": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S307": {
+      "flatrun_fast_1": 15
+    },
+    "S308": {
+      "flatrun_fixed_1": 23
+    },
+    "S309": {
+      "flatrun_norm_1": 38
+    },
+    "S310": {
+      "flatrun_slow_1": 15
+    },
+    "S312": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S313": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S314": {
+      "flatrun_fast_1": 15
+    },
+    "S315": {
+      "flatrun_fixed_1": 23
+    },
+    "S316": {
+      "flatrun_norm_1": 38
+    },
+    "S317": {
+      "flatrun_slow_1": 15
+    },
+    "S319": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S320": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S321": {
+      "flatrun_fast_1": 15
+    },
+    "S322": {
+      "flatrun_fixed_1": 23
+    },
+    "S323": {
+      "flatrun_norm_1": 38
+    },
+    "S324": {
+      "flatrun_slow_1": 15
+    },
+    "S326": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S327": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S328": {
+      "flatrun_fast_1": 15
+    },
+    "S329": {
+      "flatrun_norm_1": 38
+    },
+    "S330": {
+      "flatrun_slow_1": 15
+    },
+    "S331": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S332": {
+      "flatrun_fast_1": 15
+    },
+    "S333": {
+      "flatrun_fixed_1": 23
+    },
+    "S334": {
+      "flatrun_norm_1": 38
+    },
+    "S335": {
+      "flatrun_slow_1": 15
+    },
+    "S337": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S338": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S339": {
+      "flatrun_fast_1": 15
+    },
+    "S340": {
+      "flatrun_fixed_1": 23
+    },
+    "S341": {
+      "flatrun_norm_1": 38
+    },
+    "S342": {
+      "flatrun_slow_1": 15
+    },
+    "S344": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S345": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S346": {
+      "flatrun_fast_1": 15
+    },
+    "S347": {
+      "flatrun_fixed_1": 23
+    },
+    "S348": {
+      "flatrun_norm_1": 38
+    },
+    "S349": {
+      "flatrun_slow_1": 15
+    },
+    "S350": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S351": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S352": {
+      "flatrun_fast_1": 15
+    },
+    "S353": {
+      "flatrun_fixed_1": 23
+    },
+    "S354": {
+      "flatrun_norm_1": 38
+    },
+    "S355": {
+      "flatrun_slow_1": 15
+    },
+    "S357": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S358": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S359": {
+      "flatrun_fast_1": 15
+    },
+    "S360": {
+      "flatrun_fixed_1": 23
+    },
+    "S361": {
+      "flatrun_norm_1": 38
+    },
+    "S362": {
+      "flatrun_slow_1": 15
+    },
+    "S364": {
+      "uphillrun_slow_1": 15
+    },
+    "S365": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S366": {
+      "flatrun_fast_1": 15
+    },
+    "S367": {
+      "flatrun_fixed_1": 23
+    },
+    "S368": {
+      "flatrun_norm_1": 38
+    },
+    "S369": {
+      "flatrun_slow_1": 15
+    },
+    "S370": {
+      "downhillrun_slow_1": 2
+    },
+    "S371": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S372": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S373": {
+      "flatrun_fast_1": 15
+    },
+    "S374": {
+      "flatrun_fixed_1": 23
+    },
+    "S375": {
+      "flatrun_norm_1": 38
+    },
+    "S376": {
+      "flatrun_slow_1": 15
+    },
+    "S378": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S379": {
+      "walk_fast_1": 15,
+      "walk_slow_1": 15
+    },
+    "S380": {
+      "flatrun_fast_1": 15
+    },
+    "S381": {
+      "flatrun_fixed_1": 23
+    },
+    "S382": {
+      "flatrun_norm_1": 38
+    },
+    "S383": {
+      "flatrun_slow_1": 15
+    },
+    "S385": {
+      "uphillrun_norm_1": 15,
+      "uphillrun_slow_1": 15
+    },
+    "S427": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S428": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S429": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S430": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S431": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S432": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S433": {
+      "baseline": 7,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S434": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S435": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S436": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S437": {
+      "baseline": 7,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S438": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S439": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S440": {
+      "baseline": 7,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S441": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S442": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S443": {
+      "baseline": 6,
+      "fpa": 14,
+      "step_width": 14,
+      "trunk_sway": 14
+    },
+    "S494": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking3": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1
+    },
+    "S495": {
+      "walking2": 1,
+      "walking3": 1,
+      "walking4": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1
+    },
+    "S496": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking3": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS4": 1
+    },
+    "S497": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking3": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1,
+      "walkingTS4": 1
+    },
+    "S498": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking4": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1
+    },
+    "S499": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking3": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1
+    },
+    "S500": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking3": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1
+    },
+    "S501": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking3": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1
+    },
+    "S502": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking3": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1
+    },
+    "S503": {
+      "walking1": 1,
+      "walking2": 1,
+      "walking3": 1,
+      "walkingTS1": 1,
+      "walkingTS2": 1,
+      "walkingTS3": 1
+    },
+    "S504": {
+      "Subj04_run_63": 4,
+      "Subj04_run_81": 4,
+      "Subj04_run_99": 4,
+      "Subj04_walk_09": 4,
+      "Subj04_walk_18": 4,
+      "Subj04_walk_27": 4,
+      "Subj04_walk_36": 4,
+      "Subj04_walk_45": 4,
+      "Subj04_walk_54": 4
+    },
+    "S505": {
+      "Subj05_run_63": 3,
+      "Subj05_run_81": 3,
+      "Subj05_run_99": 4,
+      "Subj05_walk_09": 3,
+      "Subj05_walk_18": 4,
+      "Subj05_walk_27": 3,
+      "Subj05_walk_36": 5,
+      "Subj05_walk_45": 4,
+      "Subj05_walk_54": 4
+    },
+    "S506": {
+      "Subj06_run_63": 3,
+      "Subj06_run_81": 3,
+      "Subj06_run_99": 1,
+      "Subj06_walk_09": 3,
+      "Subj06_walk_18": 4,
+      "Subj06_walk_27": 3,
+      "Subj06_walk_36": 4,
+      "Subj06_walk_45": 3,
+      "Subj06_walk_54": 3
+    },
+    "S507": {
+      "Subj07_run_63": 3,
+      "Subj07_run_81": 3,
+      "Subj07_run_99": 3,
+      "Subj07_walk_09": 3,
+      "Subj07_walk_18": 3,
+      "Subj07_walk_27": 3,
+      "Subj07_walk_36": 3,
+      "Subj07_walk_45": 4,
+      "Subj07_walk_54": 4
+    },
+    "S508": {
+      "Subj08_run_63": 3,
+      "Subj08_run_81": 3,
+      "Subj08_run_99": 4,
+      "Subj08_walk_09": 3,
+      "Subj08_walk_18": 4,
+      "Subj08_walk_27": 3,
+      "Subj08_walk_36": 3,
+      "Subj08_walk_45": 3,
+      "Subj08_walk_54": 3
+    },
+    "S509": {
+      "Subj09_run_63": 3,
+      "Subj09_run_81": 3,
+      "Subj09_run_99": 3,
+      "Subj09_walk_09": 3,
+      "Subj09_walk_18": 3,
+      "Subj09_walk_27": 3,
+      "Subj09_walk_36": 3,
+      "Subj09_walk_45": 3,
+      "Subj09_walk_54": 3
+    },
+    "S510": {
+      "Subj10_run_63": 3,
+      "Subj10_run_81": 3,
+      "Subj10_run_99": 3,
+      "Subj10_walk_09": 3,
+      "Subj10_walk_18": 3,
+      "Subj10_walk_27": 3,
+      "Subj10_walk_36": 3,
+      "Subj10_walk_45": 4,
+      "Subj10_walk_54": 3
+    },
+    "S511": {
+      "Subj11_run_63": 3,
+      "Subj11_run_81": 3,
+      "Subj11_run_99": 4,
+      "Subj11_walk_09": 4,
+      "Subj11_walk_18": 3,
+      "Subj11_walk_27": 2,
+      "Subj11_walk_36": 2,
+      "Subj11_walk_45": 3,
+      "Subj11_walk_54": 3
+    },
+    "S512": {
+      "Subj12_run_63": 3,
+      "Subj12_run_81": 3,
+      "Subj12_run_99": 3,
+      "Subj12_walk_09": 4,
+      "Subj12_walk_18": 4,
+      "Subj12_walk_27": 3,
+      "Subj12_walk_36": 3,
+      "Subj12_walk_45": 3,
+      "Subj12_walk_54": 3
+    }
+  },
+  "mapping_rule": {
+    "_comment": "subjects (below): odd/even trial index only for ambiguous SA/SD or RA/RD conditions (see load_loc_ascent_descent_mapping). subject_condition_trial_max_index: documentation of trial counts for every loaded condition.",
+    "openbiomechanics_bucket_hints": "Conditions such as uphillrun_*, downhillrun_*, flatrun_*, walk_* are labeled via dataset.classify_loc_bucket (RA/RD/LG); they do not need odd/even JSON rows.",
+    "stair_family_ambiguous": "Odd/even trial index convention for classify_loc_bucket SA/SD ambiguous.",
+    "incline_ramp_family_ambiguous": "Odd/even trial index convention for classify_loc_bucket RA/RD ambiguous.",
+    "examples_EPIC_style": [
+      "stairs_1",
+      "stair_bundle2",
+      "incline_walk",
+      "incline_treadmill_bundle1",
+      "incline_treadmill_bundle2"
+    ],
+    "examples_Camargo_style": [
+      "Stair",
+      "stair_1_l",
+      "incline_ramp_4_r",
+      "stairs_1_1",
+      "stair_bundle3"
+    ],
+    "examples_AddBiomechanics_public": [
+      "flatrun_fast_1",
+      "walk_slow_1",
+      "uphillrun_norm_1",
+      "downhillrun_slow_1",
+      "baseline",
+      "step_width"
+    ]
+  },
+  "conditions_omitted_from_subjects_because_name_fixes_SA_SD_or_RA_RD": [
+    "incline_treadmill_down10deg",
+    "incline_treadmill_down5deg",
+    "incline_treadmill_up10deg",
+    "incline_treadmill_up5deg",
+    "stair_10_down",
+    "stair_11_up",
+    "stair_12_down",
+    "stair_1_up",
+    "stair_2_down",
+    "stair_3_up",
+    "stair_4_down",
+    "stair_5_up",
+    "stair_6_down",
+    "stair_7_up",
+    "stair_8_down",
+    "stair_9_up"
+  ],
+  "note_on_capital_Stair": "MeMo/Camargo-style group `Stair` is ambiguous (SA/SD) under classify_loc_bucket; odd/even mapping is applied. Confirm against lab protocol if trials are not strictly paired ascent/descent.",
+  "subjects_with_stair_or_incline_but_only_explicit_direction_conditions": [
+    "S023",
+    "S024",
+    "S025",
+    "S026",
+    "S027",
+    "S028",
+    "S029",
+    "S030",
+    "S031",
+    "S032",
+    "S033",
+    "S034"
+  ],
+  "ambiguous_condition_names_union": [
+    "Stair",
+    "incline_ramp_1_l",
+    "incline_ramp_1_r",
+    "incline_ramp_2_l",
+    "incline_ramp_2_r",
+    "incline_ramp_3_l",
+    "incline_ramp_3_r",
+    "incline_ramp_4_l",
+    "incline_ramp_4_r",
+    "incline_ramp_5_l",
+    "incline_ramp_5_r",
+    "incline_ramp_6_l",
+    "incline_ramp_6_r",
+    "incline_treadmill_bundle1",
+    "incline_treadmill_bundle2",
+    "incline_walk",
+    "incline_walk_3",
+    "incline_walk_4",
+    "stair_1_l",
+    "stair_1_r",
+    "stair_2_l",
+    "stair_2_r",
+    "stair_3_l",
+    "stair_3_r",
+    "stair_4_l",
+    "stair_4_r",
+    "stair_bundle2",
+    "stair_bundle3",
+    "stairs_1",
+    "stairs_1_1",
+    "stairs_2_1"
+  ],
+  "subjects": {
+    "S001": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 26,
+      "incline_ramp_2_l": 36,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 36,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 36,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 36,
+      "stair_1_r": 35,
+      "stair_2_l": 36,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 31,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S002": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 55,
+      "incline_ramp_2_l": 38,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 45,
+      "incline_ramp_5_l": 36,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 42,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 30,
+      "stair_1_r": 31,
+      "stair_2_l": 30,
+      "stair_2_r": 43,
+      "stair_3_l": 30,
+      "stair_3_r": 35,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S003": {
+      "incline_ramp_1_l": 31,
+      "incline_ramp_1_r": 31,
+      "incline_ramp_2_l": 31,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S004": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 36,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 31,
+      "incline_ramp_5_l": 31,
+      "incline_ramp_5_r": 31,
+      "incline_ramp_6_l": 40,
+      "incline_ramp_6_r": 36,
+      "stair_1_l": 36,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S005": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 36,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 36,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 30,
+      "stair_1_r": 42,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 36,
+      "stair_3_r": 36,
+      "stair_4_l": 36,
+      "stair_4_r": 31
+    },
+    "S006": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 40,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 46,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 36,
+      "incline_ramp_6_l": 36,
+      "incline_ramp_6_r": 24,
+      "stair_1_l": 48,
+      "stair_1_r": 33,
+      "stair_2_l": 31,
+      "stair_2_r": 34,
+      "stair_3_l": 30,
+      "stair_3_r": 31,
+      "stair_4_l": 32,
+      "stair_4_r": 37
+    },
+    "S007": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 36,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 36,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 36,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 27,
+      "stair_2_r": 42,
+      "stair_3_l": 32,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 36
+    },
+    "S008": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 36,
+      "incline_ramp_2_l": 48,
+      "incline_ramp_2_r": 42,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 31,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 31,
+      "stair_1_r": 24,
+      "stair_2_l": 30,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 32,
+      "stair_4_l": 30,
+      "stair_4_r": 31
+    },
+    "S009": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 48,
+      "incline_ramp_6_l": 36,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S010": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 36,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 36,
+      "incline_ramp_3_r": 36,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 36,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S011": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 36,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 36,
+      "stair_1_l": 31,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 31,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S012": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 31,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 36,
+      "stair_1_l": 37,
+      "stair_1_r": 32,
+      "stair_2_l": 31,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 36,
+      "stair_4_l": 36,
+      "stair_4_r": 30
+    },
+    "S013": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 31,
+      "incline_ramp_2_l": 36,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 31,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 36,
+      "incline_ramp_4_r": 36,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 42,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 31,
+      "stair_1_r": 30,
+      "stair_2_l": 31,
+      "stair_2_r": 31,
+      "stair_3_l": 48,
+      "stair_3_r": 30,
+      "stair_4_l": 37,
+      "stair_4_r": 36
+    },
+    "S014": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 42,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 42,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 36,
+      "stair_1_l": 30,
+      "stair_1_r": 34,
+      "stair_2_l": 31,
+      "stair_2_r": 39,
+      "stair_3_l": 30,
+      "stair_3_r": 31,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S015": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 36,
+      "incline_ramp_2_r": 36,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 30,
+      "incline_ramp_6_r": 29,
+      "stair_1_l": 36,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 38,
+      "stair_3_l": 36,
+      "stair_3_r": 37,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S016": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 36,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 39,
+      "incline_ramp_5_l": 36,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 44,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 30,
+      "stair_1_r": 31,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 37,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S017": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 36,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 36,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 31,
+      "incline_ramp_6_r": 37,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 43
+    },
+    "S018": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 36,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 36,
+      "incline_ramp_6_l": 24,
+      "incline_ramp_6_r": 36,
+      "stair_1_l": 30,
+      "stair_1_r": 30,
+      "stair_2_l": 30,
+      "stair_2_r": 30,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S019": {
+      "Stair": 246
+    },
+    "S020": {
+      "incline_ramp_1_l": 30,
+      "incline_ramp_1_r": 36,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 30,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 30,
+      "incline_ramp_6_l": 36,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 31,
+      "stair_1_r": 38,
+      "stair_2_l": 37,
+      "stair_2_r": 32,
+      "stair_3_l": 39,
+      "stair_3_r": 31,
+      "stair_4_l": 32,
+      "stair_4_r": 33
+    },
+    "S021": {
+      "Stair": 247
+    },
+    "S022": {
+      "incline_ramp_1_l": 31,
+      "incline_ramp_1_r": 30,
+      "incline_ramp_2_l": 30,
+      "incline_ramp_2_r": 48,
+      "incline_ramp_3_l": 30,
+      "incline_ramp_3_r": 30,
+      "incline_ramp_4_l": 30,
+      "incline_ramp_4_r": 30,
+      "incline_ramp_5_l": 30,
+      "incline_ramp_5_r": 31,
+      "incline_ramp_6_l": 38,
+      "incline_ramp_6_r": 30,
+      "stair_1_l": 31,
+      "stair_1_r": 35,
+      "stair_2_l": 52,
+      "stair_2_r": 31,
+      "stair_3_l": 30,
+      "stair_3_r": 30,
+      "stair_4_l": 30,
+      "stair_4_r": 30
+    },
+    "S035": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "incline_walk": 4,
+      "stair_bundle2": 22,
+      "stairs_1": 10
+    },
+    "S036": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "stair_bundle2": 10,
+      "stair_bundle3": 12,
+      "stairs_1": 10
+    },
+    "S037": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "stairs_1_1": 10,
+      "stairs_2_1": 10
+    },
+    "S038": {
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2,
+      "stair_bundle2": 10,
+      "stairs_1": 10
+    },
+    "S039": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "stair_bundle2": 12,
+      "stairs_1": 10
+    },
+    "S040": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "stair_bundle2": 10,
+      "stairs_1": 10
+    },
+    "S041": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "stair_bundle2": 10,
+      "stairs_1": 10
+    },
+    "S042": {
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2,
+      "stair_bundle2": 12,
+      "stairs_1": 10
+    },
+    "S043": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 3,
+      "stair_bundle2": 10,
+      "stairs_1": 10
+    },
+    "S044": {
+      "incline_treadmill_bundle1": 2,
+      "incline_treadmill_bundle2": 2,
+      "stair_bundle2": 10,
+      "stairs_1": 10
+    },
+    "S045": {
+      "incline_treadmill_bundle1": 3,
+      "incline_treadmill_bundle2": 1,
+      "stair_bundle2": 12,
+      "stairs_1_1": 12
+    },
+    "S046": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stairs_1_1": 9
+    },
+    "S047": {
+      "incline_treadmill_bundle2": 1,
+      "incline_walk_3": 1,
+      "incline_walk_4": 1,
+      "stairs_1_1": 10
+    },
+    "S048": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stairs_1_1": 10
+    },
+    "S049": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stairs_1_1": 10
+    },
+    "S050": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stair_bundle3": 12
+    },
+    "S051": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stair_bundle3": 12
+    },
+    "S052": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stair_bundle3": 12
+    },
+    "S053": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stair_bundle2": 12
+    },
+    "S054": {
+      "incline_treadmill_bundle2": 1
+    },
+    "S055": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stair_bundle3": 12
+    },
+    "S056": {
+      "incline_treadmill_bundle1": 1,
+      "incline_treadmill_bundle2": 1,
+      "stair_bundle2": 12
+    }
+  },
+  "usage": "subjects: for each listed condition with N=max trial index: odd trials ascent, even trials descent (load_loc_ascent_descent_mapping). subject_condition_trial_max_index: audit of trial_* coverage for every subject/condition the dataset loader can see at this root (not itself loaded by load_loc_ascent_descent_mapping). See dataset.classify_loc_bucket for buckets on OpenBiomechanics-style names without JSON rows."
+}
