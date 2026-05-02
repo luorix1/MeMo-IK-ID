@@ -1,4 +1,5 @@
 from .biotorque import biotorque
+from .cascade import CascadeHip
 from .dofc import DOFC
 from .gyro1ch_trt import Gyro1ChTRT
 from .simgyro3 import simgyro3
@@ -8,6 +9,7 @@ REGISTRY = {
     DOFC.name: DOFC,
     biotorque.name: biotorque,
     simgyro3.name: simgyro3,
+    CascadeHip.name: CascadeHip,
 }
 
 

@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------
+# Unilateral Hip Cascade Controller — Config
+# Controller : cascade_hip
+# Model      : os_kinetics TCN (sagittal_hip, unilateral)
+#
+# Model input  : (1, 2, frame_length)
+#   ch0 — hip encoder angle  (rad, already radians from TMotorV3)
+#          sign-corrected: left side negated so both sides look like right
+#   ch1 — hip angular velocity: thigh_Gyr_Y − pelvis_Gyr_Y (rad/s)
+#          IMU index [4] = Gyr_Y; converted from deg/s in controller
+# Model output : (1, 1) → hip joint moment (Nm/kg), scaled by mass × torque_scale
+# ---------------------------------------------------------------
+
+trial_name: "cascade_hip_test"
+exo_on: true
+trigger_type: "typing"
+
+# Both sides always active for bilateral cascade.
+side: both
+
+controller_name: cascade_hip
+controller:
+  # Path relative to this config file (resolved automatically by load_config).
+  engine_path: ../models/cascade_hip.trt
+
+  frame_length: 100
+  input_size: 2
+  output_size: 1
+
+  # ---- subject params ----
+  mass: 80.0             # subject body mass (kg) — update per subject
+
+  # ---- output scaling ----
+  # Final torque (Nm) = model_out (Nm/kg) × mass (kg) × torque_scale
+  torque_scale: 1.0      # set < 1.0 to reduce assistance
+  torque_limit: 15.0     # hard clamp (Nm) — also applied at main_hip level
+
+  # ---- normalization stats from training checkpoint ----
+  # ch0: hip encoder angle (rad)
+  hip_angle_mean: 0.0
+  hip_angle_std:  1.0
+
+  # ch1: hip angular velocity — thigh_Gyr_Y minus pelvis_Gyr_Y (rad/s)
+  hip_vel_mean:   0.0
+  hip_vel_std:    1.0
+
+  # ---- inference-path causal low-pass ----
+  infer_lpf_hz:    4.0
+  infer_lpf_order: 4
+
+fs: 100
+exp_time_sec: 360
+
+scale: 1.0
+torque_limit: 15.0
+
+invert_right_torque_cmd: true
+
+motor_backend: tmotor_v3
+sensor_package: hip_exo.sensor_motor
+sensor_python_paths:
+  - /home/metamobility1/Public/hip_exo/hip_exo
+
+can_channel: can0
+can_id_L: 1
+can_id_R: 2
+motor_model: AK80-9
+frame_length: 100
+
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+GPIO_START_DELAY_SEC: 2.0

@@ -1,5 +1,5 @@
 """
-pt2trt.py  —  PyTorch → ONNX → TensorRT conversion for knee-exo-ctrl TCN models.
+pt2trt.py  —  PyTorch → ONNX → TensorRT conversion for hip-exo-ctrl TCN models.
 
 Supports checkpoints saved by the os_kinetics training pipeline, which store:
   - model_state_dict  : TCN weights
@@ -7,21 +7,25 @@ Supports checkpoints saved by the os_kinetics training pipeline, which store:
   - window_size       : sequence length used during training
 
 The TRT engine produced matches what TRTWorkerUni expects:
-  input  shape : (1, n_input_channels, window_size)
-  output shape : (1, n_output_channels)   ← last timestep of TCN output
+  input  shape : (batch_size, n_input_channels, window_size)
+  output shape : (batch_size, n_output_channels)   ← last timestep of TCN output
 
-Usage (from knee-exo-ctrl root or anywhere):
+For CascadeHip (bilateral), use --batch-size 2 so the engine accepts both
+right (index 0) and left (index 1) simultaneously.
+
+Usage (from hip-exo-ctrl root or anywhere):
     python utils/pt2trt.py --pt /path/to/best_model.pt [options]
 
 Examples:
-    # FP32, .trt written next to the .pt file
-    python utils/pt2trt.py --pt /path/to/best_model.pt
-
-    # FP16, explicit output path, custom YAML for window_size override
+    # Bilateral hip engine (batch=2), FP32
     python utils/pt2trt.py --pt /path/to/best_model.pt \\
-                           --trt /path/to/model.trt    \\
-                           --cfg cfg/cascade_0425.yaml  \\
-                           --fp16
+                           --trt models/cascade_hip.trt  \\
+                           --batch-size 2
+
+    # FP16, explicit output path
+    python utils/pt2trt.py --pt /path/to/best_model.pt \\
+                           --trt models/cascade_hip.trt  \\
+                           --batch-size 2 --fp16
 """
 
 import argparse
@@ -88,6 +92,7 @@ def pt_to_trt(
     pt_model_path: str,
     trt_engine_path: str,
     window_size: int,
+    batch_size: int = 1,
     fp16_mode: bool = False,
 ) -> None:
     """Convert an os_kinetics TCN checkpoint to a TensorRT engine."""
@@ -129,13 +134,13 @@ def pt_to_trt(
     print(f"[INFO] Model built — parameters: {sum(p.numel() for p in tcn.parameters()):,}")
 
     # ------------------------------------------------------------------
-    # 3. Export to ONNX (static batch=1 to match TRTWorkerUni)
+    # 3. Export to ONNX (static batch — use batch_size=2 for bilateral hip)
     # ------------------------------------------------------------------
     onnx_path   = trt_engine_path.replace(".trt", ".onnx")
-    in_shape    = (1, n_input_channels, window_size)
+    in_shape    = (batch_size, n_input_channels, window_size)
     dummy_input = torch.randn(*in_shape, device="cuda")
 
-    print(f"[INFO] Exporting ONNX → {onnx_path}")
+    print(f"[INFO] Exporting ONNX → {onnx_path}  (batch_size={batch_size})")
     with torch.no_grad():
         torch.onnx.export(
             model,
@@ -146,7 +151,7 @@ def pt_to_trt(
             opset_version=18,
             do_constant_folding=True,
         )
-    print(f"[INFO] ONNX saved  — input {in_shape} → output (1, {n_output_channels})")
+    print(f"[INFO] ONNX saved  — input {in_shape} → output ({batch_size}, {n_output_channels})")
 
     # ------------------------------------------------------------------
     # 4. Parse ONNX with TensorRT
@@ -170,7 +175,7 @@ def pt_to_trt(
     print(f"[INFO] TRT network output : {net_out.name} shape={net_out.shape}")
 
     # ------------------------------------------------------------------
-    # 5. Builder config  (static batch=1 — no dynamic profile needed)
+    # 5. Builder config  (static batch — no dynamic profile needed)
     # ------------------------------------------------------------------
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30)  # 1 GiB
@@ -196,7 +201,7 @@ def pt_to_trt(
         f.write(serialized_engine)
 
     print(f"[SUCCESS] TRT engine saved : {trt_engine_path}")
-    print(f"          Engine I/O       : {in_shape} → (1, {n_output_channels})")
+    print(f"          Engine I/O       : {in_shape} → ({batch_size}, {n_output_channels})")
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +209,7 @@ def pt_to_trt(
 # ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
-    default_cfg = os.path.join(_CTRL_ROOT, "cfg", "cascade_0425.yaml")
+    default_cfg = os.path.join(_CTRL_ROOT, "cfg", "cascade_hip.yaml")
 
     p = argparse.ArgumentParser(
         description="Convert an os_kinetics TCN .pt checkpoint to a TensorRT engine.",
@@ -223,6 +228,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--window-size", type=int, default=None,
         help="Sequence length override. Checkpoint value takes precedence if present.",
+    )
+    p.add_argument(
+        "--batch-size", type=int, default=2,
+        help="Batch size for the TRT engine. Use 2 for bilateral CascadeHip (default).",
     )
     p.add_argument("--fp16", action="store_true", help="Build engine in FP16 mode.")
     return p.parse_args()
@@ -253,6 +262,7 @@ def main() -> None:
         pt_model_path=pt_path,
         trt_engine_path=trt_path,
         window_size=window_size,
+        batch_size=args.batch_size,
         fp16_mode=args.fp16,
     )
 

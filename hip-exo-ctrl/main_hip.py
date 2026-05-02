@@ -289,6 +289,14 @@ def build_data_log(cfg: dict) -> dict:
         "imu_L": np.zeros((log_size, 6)),
         "imu_R": np.zeros((log_size, 6)),
         "GPIO": np.zeros(log_size),
+        # cascade_hip extra fields (zero for non-cascade controllers)
+        "model_in_angle_raw": np.zeros(log_size),
+        "model_in_vel_raw": np.zeros(log_size),
+        "model_out_nmpkg": np.zeros(log_size),
+        "moment_raw": np.zeros(log_size),
+        "assist_gate": np.zeros(log_size),
+        "motion_score": np.zeros(log_size),
+        "state": np.zeros(log_size),
     }
 
 
@@ -507,6 +515,14 @@ class DualHipRunner:
                     self.tp.sendValue("gyro_l", float(imu_L[4]))
                     self.tp.sendValue("GPIO", gpio_state)
                     self.tp.sendValue("roop_time", step_end - step_start)
+                    # cascade_hip extras (no-op for other controllers)
+                    self.tp.sendValue("model_in_angle_raw", r.extra.get("model_in_angle_raw", 0.0))
+                    self.tp.sendValue("model_in_vel_raw", r.extra.get("model_in_vel_raw", 0.0))
+                    self.tp.sendValue("model_out_nmpkg", r.extra.get("model_out_nmpkg", 0.0))
+                    self.tp.sendValue("moment_raw", r.extra.get("moment_raw", 0.0))
+                    self.tp.sendValue("assist_gate", r.extra.get("assist_gate", 0.0))
+                    self.tp.sendValue("motion_score", r.extra.get("motion_score", 0.0))
+                    self.tp.sendValue("state", r.extra.get("state", 0.0))
                 except Exception:
                     pass
 
@@ -526,6 +542,13 @@ class DualHipRunner:
                 self.data_log["imu_L"][self.current_idx] = imu_L
                 self.data_log["imu_R"][self.current_idx] = imu_R
                 self.data_log["GPIO"][self.current_idx] = gpio_state
+                self.data_log["model_in_angle_raw"][self.current_idx] = r.extra.get("model_in_angle_raw", 0.0)
+                self.data_log["model_in_vel_raw"][self.current_idx] = r.extra.get("model_in_vel_raw", 0.0)
+                self.data_log["model_out_nmpkg"][self.current_idx] = r.extra.get("model_out_nmpkg", 0.0)
+                self.data_log["moment_raw"][self.current_idx] = r.extra.get("moment_raw", 0.0)
+                self.data_log["assist_gate"][self.current_idx] = r.extra.get("assist_gate", 0.0)
+                self.data_log["motion_score"][self.current_idx] = r.extra.get("motion_score", 0.0)
+                self.data_log["state"][self.current_idx] = r.extra.get("state", 0.0)
 
             self.current_idx += 1
 
