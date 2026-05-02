@@ -427,8 +427,16 @@ class DualHipRunner:
             pos_R = vel_R = 0.0
             if use_left:
                 pos_L, vel_L = self.hw.motor_pos_vel(self.hw.can_id_L)
+
+                # FIXME: Invert to match sign
+                pos_L *= -1
+                
             if use_right:
                 pos_R, vel_R = self.hw.motor_pos_vel(self.hw.can_id_R)
+
+                # FIXME: Invert to match sign
+                pos_R *= -1
+                vel_R *= -1
 
             s = Sensors(
                 imu_P=imu_P,
