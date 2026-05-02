@@ -139,54 +139,38 @@ class _MotionGate:
 class CascadeHip(BaseController):
     name = "cascade_hip"
 
-    def __init__(
-        self,
-        engine_path: str,
-        frame_length: int,
-        mass: float,
-        fs: int = 100,
-        torque_scale: float = 1.0,
-        torque_limit: float = 15.0,
-        hip_angle_mean: float = 0.0,
-        hip_angle_std: float = 1.0,
-        hip_vel_mean: float = 0.0,
-        hip_vel_std: float = 1.0,
-        infer_lpf_hz: float = 4.0,
-        infer_lpf_order: int = 4,
-        input_size: int = 2,
-        output_size: int = 1,
-        **_,
-    ):
-        self.engine_path = engine_path
-        self.T = int(frame_length)
-        self.fs = int(fs)
-        self.dt = 1.0 / self.fs
+    def __init__(self, config: dict):
+        self.engine_path  = str(config["trt_engine_path"])
+        self.T            = int(config["frame_length"])
+        self.fs           = int(config["fs"])
+        self.dt           = 1.0 / self.fs
 
-        self.hip_angle_mean = float(hip_angle_mean)
-        self.hip_angle_std = float(hip_angle_std)
-        self.hip_vel_mean = float(hip_vel_mean)
-        self.hip_vel_std = float(hip_vel_std)
+        self.hip_angle_mean = float(config.get("hip_angle_mean", 0.0))
+        self.hip_angle_std  = float(config.get("hip_angle_std",  1.0))
+        self.hip_vel_mean   = float(config.get("hip_vel_mean",   0.0))
+        self.hip_vel_std    = float(config.get("hip_vel_std",    1.0))
 
-        self.mass = float(mass)
-        self.torque_scale = float(torque_scale)
-        self.torque_limit = float(torque_limit)
+        self.mass         = float(config["mass"])
+        # accept either "scale" (flat-config style, like cascade_0425) or "torque_scale"
+        self.torque_scale = float(config.get("scale", config.get("torque_scale", 1.0)))
+        self.torque_limit = float(config.get("torque_limit", 15.0))
 
-        self.input_size = int(input_size)
-        self.output_size = int(output_size)
+        self.input_size  = int(config.get("input_size",  2))
+        self.output_size = int(config.get("output_size", 1))
         if self.input_size != 2:
             raise ValueError(f"cascade_hip expects input_size=2, got {self.input_size}")
         if self.output_size != 1:
             raise ValueError(f"cascade_hip expects output_size=1, got {self.output_size}")
 
         # batch=2: index 0 = right, index 1 = left
-        self.in_shape = (2, self.input_size, self.T)
+        self.in_shape  = (2, self.input_size, self.T)
         self.out_shape = (self.output_size,)  # per-sample shape → worker returns (2, 1)
 
-        self.x_r = RollingWindow((self.input_size, self.T))
-        self.x_l = RollingWindow((self.input_size, self.T))
+        self.x_r      = RollingWindow((self.input_size, self.T))
+        self.x_l      = RollingWindow((self.input_size, self.T))
         self.last_out = np.zeros((2, self.output_size), dtype=np.float32)
 
-        self.in_q = mp.Queue(maxsize=1)
+        self.in_q  = mp.Queue(maxsize=1)
         self.out_q = mp.Queue(maxsize=1)
         self.worker = TRTWorkerUni(
             self.in_q, self.out_q,
@@ -197,8 +181,8 @@ class CascadeHip(BaseController):
         self.worker.daemon = True
 
         # per-channel inference LPF (applied before model input)
-        self.infer_lpf_hz = float(infer_lpf_hz)
-        self.infer_lpf_order = int(infer_lpf_order)
+        self.infer_lpf_hz    = float(config.get("infer_lpf_hz",    4.0))
+        self.infer_lpf_order = int(config.get("infer_lpf_order",   4))
         self.infer_angle_lpf_r = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
         self.infer_angle_lpf_l = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
         self.infer_vel_lpf_r = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)

@@ -185,6 +185,7 @@ HIGHLIGHT_KEYS = {
     "exp_time_sec",
     "motor_backend",
     "fs",
+    "trt_engine_path",
     "teleplot_ip",
     "teleplot_port",
 }
@@ -197,17 +198,28 @@ def parse_args() -> argparse.Namespace:
 
 
 _PATH_KEYS = {
-    "engine_path", "mean_std_path",
+    "engine_path", "trt_engine_path", "mean_std_path",
     "input_mean_path", "input_std_path", "out_mean_path", "out_std_path",
 }
 
 
 def _resolve_relative_paths(cfg: dict, cfg_dir: str) -> None:
-    """Resolve relative paths in controller sub-dict against the config file's directory."""
+    """Resolve relative paths against the config file's directory.
+
+    Handles both the nested format (paths inside ``controller:`` sub-dict) and
+    the flat format (paths at the root level, like ``cascade_0425.yaml``).
+    """
+    # Nested controller sub-dict (simgyro3 / biotorque / default format)
     controller_cfg = cfg.get("controller") or {}
     for k, v in controller_cfg.items():
         if k in _PATH_KEYS and isinstance(v, str) and not os.path.isabs(v):
             controller_cfg[k] = os.path.normpath(os.path.join(cfg_dir, v))
+
+    # Root-level paths (flat format: cascade_0502, cascade_0425 style)
+    for k in _PATH_KEYS:
+        v = cfg.get(k)
+        if isinstance(v, str) and not os.path.isabs(v):
+            cfg[k] = os.path.normpath(os.path.join(cfg_dir, v))
 
 
 def load_config(config_path: str) -> dict:
@@ -325,7 +337,13 @@ class DualHipRunner:
 
         ctrl_kw = dict(self.cfg.get("controller") or {})
         ctrl_kw.setdefault("fs", int(self.cfg["fs"]))
-        self.controller = build_controller(self.cfg["controller_name"], **ctrl_kw)
+        if self.cfg.get("controller"):
+            # Nested format (controller: sub-block) — pass individual kwargs.
+            self.controller = build_controller(self.cfg["controller_name"], **ctrl_kw)
+        else:
+            # Flat format (all fields at root, like cascade_0425/cascade_0502) —
+            # pass full cfg as config= so the controller can read any field it needs.
+            self.controller = build_controller(self.cfg["controller_name"], config=self.cfg)
         self.controller.start()
 
         print("\n--- Dual Hip Exo Control Loop Started ---")
