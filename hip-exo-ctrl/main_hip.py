@@ -9,9 +9,9 @@ alongside the runner, analogous to knee Jetson/Teensy wiring in `main_knee.py`.
 from __future__ import annotations
 
 import argparse
-import atexit
 import enum
 import gc
+import multiprocessing as mp
 import os
 import signal
 import sys
@@ -22,6 +22,7 @@ from typing import Optional, Protocol, Tuple
 import can
 import Jetson.GPIO as GPIO
 import numpy as np
+import torch
 import yaml
 
 from controllers import build_controller
@@ -288,14 +289,6 @@ class DualHipRunner:
         self.current_idx = 0
 
     def setup(self):
-        if bool(self.cfg.get("multiprocessing_spawn", True)):
-            import multiprocessing as mp
-
-            try:
-                mp.set_start_method("spawn", force=True)
-            except RuntimeError:
-                pass
-
         if self.cfg.get("trigger_type") == "mocap":
             try:
                 self.mocap_trigger = Mocap_trigger(server_ip="172.24.44.177", port_number=10)
@@ -349,13 +342,21 @@ class DualHipRunner:
 
         try:
             gc.collect()
-            import torch
-
             torch.cuda.empty_cache()
         except Exception:
             pass
 
         print("Shutdown complete.")
+
+    def save_data(self):
+        try:
+            print("Preparing data for saving...")
+            for key in self.data_log.keys():
+                self.data_log[key] = self.data_log[key][: self.current_idx]
+            np.savez(self.cfg["trial_name"], **self.data_log)
+            print(f"=== Data saved: {self.cfg['trial_name']}.npz ===")
+        except Exception as e:
+            print(f"[save_data] error: {e}")
 
     def run(self):
         if self.hw is None:
@@ -523,8 +524,20 @@ def _handle_signal(sig, frame):
     try:
         if _RUNNER:
             _RUNNER.shutdown()
-    finally:
-        sys.exit(0)
+    except Exception as e:
+        print(f"[Signal] shutdown error: {e}")
+    try:
+        if _RUNNER:
+            _RUNNER.save_data()
+    except Exception as e:
+        print(f"[Signal] save_data error: {e}")
+    try:
+        gc.collect()
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+    print("Exiting program")
+    os._exit(0)
 
 
 def main():
@@ -535,7 +548,6 @@ def main():
 
     runner = DualHipRunner(cfg)
     _RUNNER = runner
-    atexit.register(runner.shutdown)
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
@@ -549,17 +561,11 @@ def main():
         print(f"[MAIN ERROR] {e}")
         traceback.print_exc()
     finally:
-        runner.shutdown()
         gc.enable()
-        gc.collect()
-
-        print("Preparing data for saving...")
-        for key in runner.data_log.keys():
-            runner.data_log[key] = runner.data_log[key][: runner.current_idx]
-
-        np.savez(runner.cfg["trial_name"], **runner.data_log)
-        print(f"=== Saving data for trial: {runner.cfg['trial_name']} ===")
 
 
 if __name__ == "__main__":
+    gc.collect()
+    torch.cuda.empty_cache()
+    mp.set_start_method("spawn", force=True)
     main()

@@ -37,5 +37,3 @@ teleplot_port: 47269
 GPIO_OUTPUT_PIN: 7
 PULSE_WIDTH_SEC: 0.2
 GPIO_START_DELAY_SEC: 2.0
-
-multiprocessing_spawn: true
