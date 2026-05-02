@@ -8,9 +8,9 @@ side: both
 
 controller_name: simgyro3
 controller:
-  engine_path: /home/metamobility3/Jinwoo/os_kinetics/hip-exo-ctrl/models/student_tcn_gyro3_epoch4.trt
+  engine_path: ../models/student_tcn_gyro3_epoch4.trt
   frame_len: 95
-  mean_std_path: /home/metamobility3/Jinwoo/os_kinetics/hip-exo-ctrl/mean_std/stats_results.npz
+  mean_std_path: ../mean_std/stats_results.npz
 
 fs: 100
 exp_time_sec: 360

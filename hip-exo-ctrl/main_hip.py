@@ -196,12 +196,27 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+_PATH_KEYS = {
+    "engine_path", "mean_std_path",
+    "input_mean_path", "input_std_path", "out_mean_path", "out_std_path",
+}
+
+
+def _resolve_relative_paths(cfg: dict, cfg_dir: str) -> None:
+    """Resolve relative paths in controller sub-dict against the config file's directory."""
+    controller_cfg = cfg.get("controller") or {}
+    for k, v in controller_cfg.items():
+        if k in _PATH_KEYS and isinstance(v, str) and not os.path.isabs(v):
+            controller_cfg[k] = os.path.normpath(os.path.join(cfg_dir, v))
+
+
 def load_config(config_path: str) -> dict:
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     if not isinstance(cfg, dict):
         raise ValueError(f"Config must be a YAML mapping, got {type(cfg).__name__}")
     cfg["config_path"] = os.path.abspath(config_path)
+    _resolve_relative_paths(cfg, os.path.dirname(cfg["config_path"]))
     return cfg
 
 
