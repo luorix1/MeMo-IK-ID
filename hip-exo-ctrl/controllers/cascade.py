@@ -327,9 +327,11 @@ class CascadeHip(BaseController):
         model_out_r = self.infer_out_lpf_r.update(model_out_r_raw)
         model_out_l = self.infer_out_lpf_l.update(model_out_l_raw)
 
-        moment_r = model_out_r * self.mass * self.torque_scale
+        # FIXME: temporary sign flip — remove once output sign is verified on hardware
+        moment_r = -(model_out_r * self.mass * self.torque_scale)
         # left output is in right convention — negate to get actual left-side torque
-        moment_l = -(model_out_l * self.mass * self.torque_scale)
+        # FIXME: temporary sign flip — remove once output sign is verified on hardware
+        moment_l = model_out_l * self.mass * self.torque_scale
 
         # ---- torque LPF → rate limit → clamp ----
         self.torque_filt_r = self._lpf(self.torque_filt_r, moment_r, self.torque_filter_tau)
