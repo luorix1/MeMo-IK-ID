@@ -625,6 +625,10 @@ def main():
         print(f"[MAIN ERROR] {e}")
         traceback.print_exc()
     finally:
+        # Reached on exception or normal exit only — os._exit(0) in _handle_signal
+        # bypasses this block, so there is no double-save on Ctrl+C.
+        runner.shutdown()
+        runner.save_data()
         gc.enable()
 
 
