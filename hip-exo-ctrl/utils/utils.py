@@ -1,14 +1,7 @@
-# utils/utils.py
 import time
 
 
 class RateKeeper:
-    """Precision fixed-rate loop timer.
-
-    Busy-spins for the last ~50 µs to avoid OS sleep jitter.
-    Reports overrun and scheduled time so callers can log timing.
-    """
-
     def __init__(self, hz: float, catchup_cycles: int = 3, spin_ns: int = 50_000):
         self.period_ns = int(1e9 / float(hz))
         self.next_ns = None
@@ -20,14 +13,6 @@ class RateKeeper:
         self.next_ns = time.perf_counter_ns()
 
     def wait(self):
-        """Advance one tick and block until the scheduled time.
-
-        Returns
-        -------
-        overrun_s : float   seconds past the deadline (0 if on time)
-        sched_s   : float   scheduled elapsed time in seconds
-        k         : int     tick index (0-based)
-        """
         self.next_ns += self.period_ns
         while True:
             now_ns = time.perf_counter_ns()
