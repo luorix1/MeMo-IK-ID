@@ -5,15 +5,20 @@ Model I/O:
   input  : (2, 2, T)  — batch of 2 (right=0, left=1), each [hip_angle, hip_vel_imu]
   output : (2, 1)     — Nm/kg per side; left output is sign-flipped before applying
 
+Hip angular velocity convention (applied before sign-correction per side):
+  hip_vel = −thigh_Gyr_Y − pelvis_Gyr_Y
+  (thigh Y-axis negated, pelvis Y-axis positive)
+
 Both sides are sign-corrected to right convention before being fed to the model:
-  right: encoder_raw  =  pos_R  (already rad from TMotorV3 degrees=False)
-         hip_vel_imu  =  np.deg2rad(imu_R[4] − imu_P[4])   (+ve = flexion)
+  right: encoder_raw  = −pos_R  (FIXME: negated — verify encoder sign on hardware)
+         hip_vel_imu  = −imu_R_Gyr_Y − pelvis_Gyr_Y
   left:  encoder_raw  = −pos_L  (negated)
-         hip_vel_imu  = −np.deg2rad(imu_L[4] − imu_P[4])   (negated)
+         hip_vel_imu  = −(−imu_L_Gyr_Y − pelvis_Gyr_Y)   (sign-flip to right convention)
+                      =  imu_L_Gyr_Y + pelvis_Gyr_Y
 
 Applied torques:
-  right: +model_out[0] × mass × torque_scale
-  left:  −model_out[1] × mass × torque_scale   ← sign flip back to left convention
+  right: −model_out[0] × mass × torque_scale  (FIXME: sign flip — verify on hardware)
+  left:  +model_out[1] × mass × torque_scale  (FIXME: sign flip — verify on hardware)
 
 IMU layout — 6-vector [Acc_X, Acc_Y, Acc_Z, Gyr_X, Gyr_Y, Gyr_Z]:
   index 4 (Gyr_Y) is the sagittal-plane angular velocity for hip flex/extension.
@@ -277,16 +282,18 @@ class CascadeHip(BaseController):
     #  Main control step
     # ------------------------------------------------------------------ #
     def step(self, s: Sensors) -> CtrlResult:
-        pelvis_gyr_y = np.deg2rad(float(s.imu_P[4]))
+        pelvis_gyr_y = np.deg2rad(float(s.imu_P[4]))   # positive pelvis Y-axis
 
         # ---- right side (positive convention) ----
         # FIXME: temporary sign flip — remove once encoder sign is verified on hardware
         enc_r_raw = -float(s.pos_R)
-        vel_r_raw = np.deg2rad(float(s.imu_R[4])) - pelvis_gyr_y
+        # hip_vel = −thigh_Gyr_Y − pelvis_Gyr_Y
+        vel_r_raw = -np.deg2rad(float(s.imu_R[4])) - pelvis_gyr_y
 
         # ---- left side (sign-corrected to match right convention) ----
         enc_l_raw = -float(s.pos_L)
-        vel_l_raw = -(np.deg2rad(float(s.imu_L[4])) - pelvis_gyr_y)
+        # raw left: −thigh_Gyr_Y − pelvis_Gyr_Y → negate for right convention
+        vel_l_raw = np.deg2rad(float(s.imu_L[4])) + pelvis_gyr_y
 
         # ---- telemetry LPFs (display only) ----
         self.hip_angle_filt_r = self._lpf(self.hip_angle_filt_r, enc_r_raw, self.hip_filter_tau)
