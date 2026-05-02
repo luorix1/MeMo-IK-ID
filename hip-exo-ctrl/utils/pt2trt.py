@@ -79,9 +79,51 @@ def load_yaml(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def _install_numpy_core_shim() -> None:
+    """Redirect numpy._core → numpy.core for checkpoints saved with numpy ≥ 1.25.
+
+    numpy ≥ 1.25 moved internals to numpy._core; older deployments only have
+    numpy.core.  When a checkpoint pickled on a newer numpy is loaded on an
+    older one, pickle fails with 'No module named numpy._core'.  Installing
+    this shim before the second load attempt resolves the mismatch without
+    modifying the numpy installation.
+    """
+    import sys
+    import types
+
+    import numpy as np
+
+    if "numpy._core" in sys.modules:
+        return
+
+    shim = types.ModuleType("numpy._core")
+    sys.modules["numpy._core"] = shim
+
+    import numpy.core as _nc
+
+    for attr in dir(_nc):
+        try:
+            setattr(shim, attr, getattr(_nc, attr))
+        except Exception:
+            pass
+
+    for key in list(sys.modules):
+        if key.startswith("numpy.core."):
+            alias = key.replace("numpy.core.", "numpy._core.", 1)
+            if alias not in sys.modules:
+                sys.modules[alias] = sys.modules[key]
+
+
 def load_checkpoint(pt_path: str) -> dict:
-    """Load checkpoint regardless of whether numpy globals are embedded."""
-    return torch.load(pt_path, map_location="cpu", weights_only=False)
+    """Load checkpoint, handling numpy._core / numpy.core version mismatch."""
+    try:
+        return torch.load(pt_path, map_location="cpu", weights_only=False)
+    except ModuleNotFoundError as e:
+        if "numpy._core" not in str(e):
+            raise
+        print(f"[WARN] numpy._core not found ({e}). Installing compatibility shim and retrying.")
+        _install_numpy_core_shim()
+        return torch.load(pt_path, map_location="cpu", weights_only=False)
 
 
 # ---------------------------------------------------------------------------
