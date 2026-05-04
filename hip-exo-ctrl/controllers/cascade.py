@@ -267,7 +267,9 @@ class CascadeHip(BaseController):
     #  Main control step
     # ------------------------------------------------------------------ #
     def step(self, s: Sensors) -> CtrlResult:
-        pelvis_gyr_y = np.deg2rad(float(s.imu_P[4]))   # positive pelvis Y-axis
+        # pelvis_gyr_y = np.deg2rad(float(s.imu_P[4]))   # positive pelvis Y-axis
+        # NOTE: Pelvis gyro is too noisy, we just zero it
+        pelvis_gyr_y = 0.0
 
         # ---- right side (positive convention) ----
         enc_r_raw = float(s.pos_R)
