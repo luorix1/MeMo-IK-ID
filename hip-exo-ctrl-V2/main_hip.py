@@ -1,6 +1,8 @@
 """
 Hip exoskeleton V2 entrypoint — central `main_hip.py` + `controllers/` (layout matches V1).
 
+Sensor I/O (ICM20948 + mux) is vendored under `sensor/`. TMotor stack under `epicpower_tmotorV3/`.
+
 Supports:
   - `state2torque` — PCB2 IMUs, motor degrees, ring-buffer CSV logs (legacy State2Torque script).
   - `cascade_hip` — same plant + runner as hip-exo-ctrl-V1 (RateKeeper, .npz log, Teleplot).
@@ -35,7 +37,7 @@ from utils.utils import RateKeeper
 
 
 def _hip_exo_ctrl_v2_root() -> str:
-    """Directory containing ``main_hip.py`` (vendored ``epicpower_tmotorV3`` lives here)."""
+    """Directory containing ``main_hip.py`` (``sensor/`` IMU drivers + ``epicpower_tmotorV3``)."""
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -65,8 +67,8 @@ def _import_tmotor_actuator_classes(cfg: dict) -> Tuple[type, type]:
     except ModuleNotFoundError as e:
         raise ModuleNotFoundError(
             f"Cannot import '{root}.actuator_group' / '{root}.tmotor_v3'. "
-            f"Add the repo root that contains the `{root}/` folder to `sensor_python_paths`, "
-            f"or set `tmotor_package` in YAML. Underlying error: {e}"
+            f"Vendored package should live under hip-exo-ctrl-V2 next to `main_hip.py`, "
+            f"or set `tmotor_package` / `sensor_python_paths` in YAML. Underlying error: {e}"
         ) from e
 
 
@@ -75,7 +77,7 @@ class TMotorV3HipHardwarePcb2:
 
     def __init__(self, cfg: dict):
         _prepend_paths(cfg.get("sensor_python_paths") or [])
-        imu_mod = cfg.get("imu_module", "Header_ICM20948_I2C_pcb2")
+        imu_mod = cfg.get("imu_module", "sensor.Header_ICM20948_I2C_pcb2")
         icm = __import__(imu_mod, fromlist=["ICM20948_I2C_IMUs"])
         ICM20948_I2C_IMUs = icm.ICM20948_I2C_IMUs
 
@@ -155,7 +157,7 @@ class EpicPowerHipHardware:
         _prepend_paths(cfg.get("sensor_python_paths") or [])
         from epicpower import actuation
 
-        imu_mod = cfg.get("imu_module_epicpower", "Header_ICM20948_I2C_pcb2")
+        imu_mod = cfg.get("imu_module_epicpower", "sensor.Header_ICM20948_I2C_pcb2")
         icm = __import__(imu_mod, fromlist=["ICM20948_I2C_IMUs"])
         ICM20948_I2C_IMUs = icm.ICM20948_I2C_IMUs
 
@@ -199,17 +201,14 @@ class EpicPowerHipHardware:
 
 
 def _resolve_tmotor_imu_stack(cfg: dict):
-    """Import TMotor + ICM stack. Does **not** require the ``hip_exo`` PyPI/layout package.
+    """Import TMotor + ICM stack.
 
-    **Load order is always** ``local path`` → ``sensor_motor`` → ``hip_exo.sensor_motor`` so that
-    Jetsons with only ``sensor_python_paths`` (State2Torque folder + motor repo) succeed even if
-    YAML still says ``sensor_package: hip_exo.sensor_motor``.
-
-    - **local**: ``imu_module`` (default ``Header_ICM20948_I2C``) + ``tmotor_package`` (default
-      ``epicpower_tmotorV3``) on ``PYTHONPATH`` after prepending ``sensor_python_paths``.
+    Tries **local** (hip-exo-ctrl-V2 root + optional ``sensor_python_paths`` + vendored motor),
+    then legacy **sensor_motor** tree. **hip_exo** only if ``try_hip_exo_import: true``.
+    Default IMU module is ``sensor.Header_ICM20948_I2C`` (vendored under ``sensor/``).
     """
     _prepend_paths(cfg.get("sensor_python_paths") or [])
-    imu_mod = str(cfg.get("imu_module", "Header_ICM20948_I2C"))
+    imu_mod = str(cfg.get("imu_module", "sensor.Header_ICM20948_I2C"))
 
     def _local():
         icm = __import__(imu_mod, fromlist=["ICM20948_I2C_IMUs"])
@@ -231,25 +230,25 @@ def _resolve_tmotor_imu_stack(cfg: dict):
 
         return ICM20948_I2C_IMUs, ActuatorGroup, TMotorV3
 
-    # Prefer path-based imports first (matches V2 State2Torque + cubemars motor checkouts).
-    order = (_local, _sensor_motor, _hip_exo)
+    chain: list[tuple[str, object]] = [("local", _local), ("sensor_motor", _sensor_motor)]
+    if bool(cfg.get("try_hip_exo_import", False)):
+        chain.append(("hip_exo", _hip_exo))
 
-    last_err = None
-    for loader in order:
+    attempts: list[tuple[str, Exception]] = []
+    for name, loader in chain:
         try:
             return loader()
         except Exception as e:
-            last_err = e
+            attempts.append((name, e))
             continue
 
+    detail = "; ".join(f"{n}: {type(exc).__name__}: {exc}" for n, exc in attempts)
     raise ImportError(
-        "Could not import TMotor/IMU stack. Add **all** needed roots to `sensor_python_paths`, e.g. "
-        "(1) folder containing `Header_ICM20948_I2C.py` or `imu_module`, "
-        "(2) folder containing `tmotor_package` (default package dir `epicpower_tmotorV3`). "
-        "Example motor repo root: "
-        "`.../epically-powerful-feature-cubemars_v3/epically-powerful-feature-cubemars_v3`. "
-        f"Last error: {last_err!r}"
-    ) from last_err
+        "Could not import TMotor/IMU stack. Default IMU lives in `sensor/` (see `imu_module`). "
+        "Ensure `epicpower_tmotorV3` is next to `main_hip.py`. Optional `sensor_python_paths` "
+        "adds extra import roots. "
+        f"Attempts: {detail}"
+    ) from (attempts[-1][1] if attempts else None)
 
 
 class TMotorV3HipHardware:

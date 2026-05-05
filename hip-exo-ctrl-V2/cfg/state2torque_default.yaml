@@ -1,5 +1,5 @@
 # Bilateral State2Torque — IMU-window TRT + biotorque (hip-exo-ctrl-V2).
-# Point `trt_engine_path` and `sensor_python_paths` at your machine.
+# IMU code lives under `sensor/`; point `trt_engine_path` at your machine.
 
 controller_name: "state2torque"
 
@@ -33,11 +33,9 @@ can_id_L: 1
 can_id_R: 2
 motor_model: "AK80-9"
 
-imu_module: "Header_ICM20948_I2C_pcb2"
+imu_module: "sensor.Header_ICM20948_I2C_pcb2"
 tmotor_package: epicpower_tmotorV3
-sensor_python_paths:
-  # `epicpower_tmotorV3` is vendored in hip-exo-ctrl-V2; list only folder(s) with IMU Python headers:
-  - "/path/to/V2_Hip_Exo-main/State2Torque 2 Controllers"
+sensor_python_paths: []
 
 teleplot_ip: "127.0.0.1"
 teleplot_port: 47269

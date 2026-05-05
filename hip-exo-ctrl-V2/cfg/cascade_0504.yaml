@@ -51,16 +51,14 @@ infer_lpf_hz:    15.0
 infer_lpf_order: 4
 
 # ---- hardware ----
-# `epicpower_tmotorV3` is vendored next to `main_hip.py`; add `sensor_python_paths` only for IMU
-# headers (folder containing `imu_module`) if they are not already on the path.
+# IMU drivers: hip-exo-ctrl-V2/sensor/ (default `imu_module` below). Motor: epicpower_tmotorV3 next to main_hip.py.
+# Optional `sensor_python_paths`: extra sys.path roots only (not required for stock checkout).
 invert_right_torque_cmd: true
 motor_backend: tmotor_v3
 sensor_package: auto
 tmotor_package: epicpower_tmotorV3
-imu_module: Header_ICM20948_I2C
-sensor_python_paths:
-  # Folder containing `imu_module` (.py). Motor stack is vendored under hip-exo-ctrl-V2/epicpower_tmotorV3.
-  - "/path/to/V2_Hip_Exo-main/State2Torque 2 Controllers"
+imu_module: sensor.Header_ICM20948_I2C
+sensor_python_paths: []
 
 can_channel: "can0"
 can_id_L: 1
