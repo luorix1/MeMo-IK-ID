@@ -1,8 +1,9 @@
 """
-Hip exoskeleton V2 entrypoint — central `main_hip` + `controllers/` (State2Torque K5).
+Hip exoskeleton V2 entrypoint — central `main_hip.py` + `controllers/` (layout matches V1).
 
-Behavior matches `V2_Hip_Exo-main/State2Torque 2 Controllers/allnewK5_6min_Cleaned_PreAlloc last 2min.py`:
-IMU-window TRT, biotorque pipeline, ring-buffer CSV logging, GPIO sync pulses, mocap/typing triggers.
+Supports:
+  - `state2torque` — PCB2 IMUs, motor degrees, ring-buffer CSV logs (legacy State2Torque script).
+  - `cascade_hip` — same plant + runner as hip-exo-ctrl-V1 (RateKeeper, .npz log, Teleplot).
 """
 
 from __future__ import annotations
@@ -15,7 +16,8 @@ import signal
 import sys
 import time
 import traceback
-from typing import Optional
+import enum
+from typing import Any, Optional, Protocol, Tuple
 
 import can
 import Jetson.GPIO as GPIO
@@ -27,7 +29,9 @@ import yaml
 from controllers import build_controller
 from controllers.base import Sensors
 from utils.Header_Mocap_trigger import Mocap_trigger
-from utils.k5_helper import TeleplotBatch
+from utils.teleplot import Teleplot
+from utils.teleplot_batch import TeleplotBatch
+from utils.utils import RateKeeper
 
 
 def _prepend_paths(paths: list) -> None:
@@ -36,8 +40,8 @@ def _prepend_paths(paths: list) -> None:
             sys.path.insert(0, p)
 
 
-class TMotorV3HipHardwareV2:
-    """PCB2 dict IMUs + TMotorV3 ActuatorGroup; positions/velocities in degrees (script convention)."""
+class TMotorV3HipHardwarePcb2:
+    """TMotorV3 + PCB2 dict IMUs; motor pos/vel in degrees (State2Torque path)."""
 
     def __init__(self, cfg: dict):
         _prepend_paths(cfg.get("sensor_python_paths") or [])
@@ -54,7 +58,7 @@ class TMotorV3HipHardwareV2:
         self.control_freq_hz = float(cfg["fs"])
 
         input(
-            f"[TMotorV3HipHardwareV2] Press Enter to initialize motors "
+            f"[TMotorV3HipHardwarePcb2] Press Enter to initialize motors "
             f"(CAN ids {self.can_id_L}, {self.can_id_R})..."
         )
         init_list = [
@@ -95,6 +99,144 @@ class TMotorV3HipHardwareV2:
             print("CAN resources cleaned up successfully")
         except Exception as e:
             print(f"Error during CAN cleanup: {e}")
+
+
+# --- `cascade_hip` plant I/O (matches hip-exo-ctrl-V1 `main_hip.py`) ---
+
+
+class HipHardware(Protocol):
+    can_id_L: int
+    can_id_R: int
+    control_freq_hz: float
+
+    def read_imu_triplet(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        ...
+
+    def motor_pos_vel(self, can_id: int) -> Tuple[float, float]:
+        ...
+
+    def set_torque(self, can_id: int, torque_nm: float) -> None:
+        ...
+
+    def shutdown(self) -> None:
+        ...
+
+
+class EpicPowerHipHardware:
+    def __init__(self, cfg: dict):
+        _prepend_paths(cfg.get("sensor_python_paths") or [])
+        from epicpower import actuation
+
+        imu_mod = cfg.get("imu_module_epicpower", "Header_ICM20948_I2C_pcb2")
+        icm = __import__(imu_mod, fromlist=["ICM20948_I2C_IMUs"])
+        ICM20948_I2C_IMUs = icm.ICM20948_I2C_IMUs
+
+        self.can_id_L = int(cfg["can_id_L"])
+        self.can_id_R = int(cfg["can_id_R"])
+        self.motor_model = str(cfg.get("motor_model", "AK80-9"))
+        self.control_freq_hz = float(cfg["fs"])
+
+        input(
+            f"[EpicPowerHipHardware] Press Enter to initialize motors "
+            f"(CAN ids {self.can_id_L}, {self.can_id_R})..."
+        )
+        init_dict = {mtr_id: self.motor_model for mtr_id in [self.can_id_L, self.can_id_R]}
+        self.mtr_comms = actuation.Motors(init_dict)
+        self.imus = ICM20948_I2C_IMUs()
+
+        self.bus = can.Bus(interface="socketcan", channel=str(cfg.get("can_channel", "can0")))
+        self.notifier = can.Notifier(self.bus, [])
+
+    def read_imu_triplet(self):
+        imu = self.imus.read_IMUs()
+        imu_P = np.asarray(imu["IMU_PELVIS"], dtype=np.float32)
+        imu_L = np.asarray(imu["IMU_THIGH_LEFT"], dtype=np.float32)
+        imu_R = np.asarray(imu["IMU_THIGH_RIGHT"], dtype=np.float32)
+        return imu_P, imu_L, imu_R
+
+    def motor_pos_vel(self, can_id: int):
+        pos = self.mtr_comms.get_position(can_id, degrees=False)
+        vel = self.mtr_comms.get_velocity(can_id, degrees=False)
+        return float(pos), float(vel)
+
+    def set_torque(self, can_id: int, torque_nm: float):
+        self.mtr_comms.set_torque(can_id, float(torque_nm))
+
+    def shutdown(self):
+        try:
+            self.notifier.stop()
+            self.bus.shutdown()
+        except Exception:
+            pass
+
+
+class TMotorV3HipHardware:
+    """TMotorV3 + flat 18-vector IMUs; encoder rad/s (cascade path, hip-exo-ctrl-V1)."""
+
+    def __init__(self, cfg: dict):
+        _prepend_paths(cfg.get("sensor_python_paths") or [])
+        pkg = str(cfg.get("sensor_package", "sensor_motor"))
+        if pkg == "hip_exo.sensor_motor":
+            from hip_exo.sensor_motor.Header_ICM20948_I2C import ICM20948_I2C_IMUs
+            from hip_exo.sensor_motor.epicpower_tmotorV3.actuator_group import ActuatorGroup
+            from hip_exo.sensor_motor.epicpower_tmotorV3.tmotor_v3 import TMotorV3
+        else:
+            from sensor_motor.Header_ICM20948_I2C import ICM20948_I2C_IMUs
+            from sensor_motor.epicpower_tmotorV3.actuator_group import ActuatorGroup
+            from sensor_motor.epicpower_tmotorV3.tmotor_v3 import TMotorV3
+
+        self.can_id_L = int(cfg["can_id_L"])
+        self.can_id_R = int(cfg["can_id_R"])
+        self.motor_model = str(cfg.get("motor_model", "AK80-9"))
+        self.control_freq_hz = float(cfg["fs"])
+
+        input(
+            f"[TMotorV3HipHardware] Press Enter to initialize motors "
+            f"(CAN ids {self.can_id_L}, {self.can_id_R})..."
+        )
+        init_list = [
+            TMotorV3(self.can_id_L, self.motor_model),
+            TMotorV3(self.can_id_R, self.motor_model),
+        ]
+        self.mtr_comms = ActuatorGroup(init_list)
+        self.imus = ICM20948_I2C_IMUs()
+
+        self.bus = can.Bus(interface="socketcan", channel=str(cfg.get("can_channel", "can0")))
+        self.notifier = can.Notifier(self.bus, [])
+
+    def read_imu_triplet(self):
+        imu = self.imus.read_IMUs()
+        flat = np.asarray(imu, dtype=np.float32).reshape(-1)
+        if flat.size < 18:
+            raise RuntimeError(f"Expected 18 IMU scalars, got length {flat.size}")
+        imu_P = flat[0:6].copy()
+        imu_L = flat[6:12].copy()
+        imu_R = flat[12:18].copy()
+        return imu_P, imu_L, imu_R
+
+    def motor_pos_vel(self, can_id: int):
+        pos = self.mtr_comms.get_position(can_id, degrees=False)
+        vel = self.mtr_comms.get_velocity(can_id, degrees=False)
+        return float(pos), float(vel)
+
+    def set_torque(self, can_id: int, torque_nm: float):
+        self.mtr_comms.set_torque(can_id, float(torque_nm))
+
+    def shutdown(self):
+        try:
+            self.notifier.stop()
+            self.bus.shutdown()
+        except Exception:
+            pass
+
+
+def build_hip_hardware(cfg: dict) -> HipHardware:
+    backend = str(cfg.get("motor_backend", "tmotor_v3")).lower()
+    if backend == "tmotor_v3":
+        return TMotorV3HipHardware(cfg)
+    if backend == "epicpower":
+        return EpicPowerHipHardware(cfg)
+    raise ValueError(f"Unknown motor_backend: {backend}. Use 'tmotor_v3' or 'epicpower'.")
 
 
 def init_data_buffers(n_samples: int) -> dict:
@@ -283,9 +425,48 @@ def clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
 
 
+def _is_state2torque(cfg: dict) -> bool:
+    return str(cfg.get("controller_name")) == "state2torque"
+
+
+class Side(enum.Enum):
+    LEFT = "left"
+    RIGHT = "right"
+    BOTH = "both"
+
+
+def build_data_log(cfg: dict) -> dict:
+    log_size = int(cfg["exp_time_sec"] * cfg["fs"])
+    return {
+        "time": np.zeros(log_size),
+        "hip_pos_L": np.zeros(log_size),
+        "hip_pos_R": np.zeros(log_size),
+        "hip_vel_L": np.zeros(log_size),
+        "hip_vel_R": np.zeros(log_size),
+        "cmd_L": np.zeros(log_size),
+        "cmd_R": np.zeros(log_size),
+        "model_out_L": np.zeros(log_size),
+        "model_out_R": np.zeros(log_size),
+        "applied_L": np.zeros(log_size),
+        "applied_R": np.zeros(log_size),
+        "imu_P": np.zeros((log_size, 6)),
+        "imu_L": np.zeros((log_size, 6)),
+        "imu_R": np.zeros((log_size, 6)),
+        "GPIO": np.zeros(log_size),
+        "model_in_angle_raw": np.zeros(log_size),
+        "model_in_vel_raw": np.zeros(log_size),
+        "model_out_nmpkg": np.zeros(log_size),
+        "moment_raw": np.zeros(log_size),
+        "assist_gate": np.zeros(log_size),
+        "motion_score": np.zeros(log_size),
+        "state": np.zeros(log_size),
+    }
+
+
 COLOR_GREEN = "\033[92m"
 COLOR_RESET = "\033[0m"
 HIGHLIGHT_KEYS = {
+    "controller_name",
     "trial_name",
     "exo_on",
     "trt_engine_path",
@@ -294,11 +475,17 @@ HIGHLIGHT_KEYS = {
     "desired_delay_ms",
     "trigger_type",
     "target_duration_sec",
+    "exp_time_sec",
+    "mass",
+    "scale",
+    "fs",
 }
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Run hip exoskeleton V2 (State2Torque K5) control loop.")
+    p = argparse.ArgumentParser(
+        description="Hip exo V2: run `state2torque` (CSV) or `cascade_hip` (npz, RateKeeper) from YAML."
+    )
     p.add_argument("config", help="Path to YAML config file.")
     return p.parse_args()
 
@@ -339,43 +526,65 @@ def print_config(cfg: dict) -> None:
     input("\n==== Check Config ====\nHit Enter to continue...")
 
 
-_RUNNER: Optional["K5Runner"] = None
+_RUNNER: Optional["DualHipRunner"] = None
 
 
-class K5Runner:
+class DualHipRunner:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.hw: Optional[TMotorV3HipHardwareV2] = None
+        self.hw: Any = None
         self.controller = None
         self.gpio: Optional[GPIOControl] = None
-        self.tp: Optional[TeleplotBatch] = None
+        self.tp: Any = None
         self.mocap_trigger = None
         self.data_to_save: dict = {}
         self.logged_samples = 0
         self.max_samples = 0
+        self.data_log: dict = {}
+        self.current_idx = 0
 
     def setup(self):
         self.gpio = GPIOControl(int(self.cfg["GPIO_OUTPUT_PIN"]))
-        self.tp = TeleplotBatch(self.cfg["teleplot_ip"], int(self.cfg["teleplot_port"]))
-
-        if self.cfg.get("trigger_type") == "mocap":
-            self.mocap_trigger = Mocap_trigger(
-                server_ip=str(self.cfg["mocap_server_ip"]),
-                port_number=int(self.cfg["mocap_server_port"]),
+        if _is_state2torque(self.cfg):
+            self.tp = TeleplotBatch(self.cfg["teleplot_ip"], int(self.cfg["teleplot_port"]))
+            if self.cfg.get("trigger_type") == "mocap":
+                self.mocap_trigger = Mocap_trigger(
+                    server_ip=str(self.cfg["mocap_server_ip"]),
+                    port_number=int(self.cfg["mocap_server_port"]),
+                )
+                self.mocap_trigger.start_client()
+            self.controller = build_controller(
+                self.cfg["controller_name"],
+                config=self.cfg,
             )
-            self.mocap_trigger.start_client()
-
-        self.controller = build_controller(
-            self.cfg["controller_name"],
-            config=self.cfg,
-        )
-        self.hw = TMotorV3HipHardwareV2(self.cfg)
-
-        self.max_samples = int(float(self.cfg["collect_last_sec"]) * float(self.cfg["fs"]))
-        self.data_to_save = init_data_buffers(self.max_samples)
-        self.logged_samples = 0
-
-        self.controller.start()
+            self.hw = TMotorV3HipHardwarePcb2(self.cfg)
+            self.max_samples = int(float(self.cfg["collect_last_sec"]) * float(self.cfg["fs"]))
+            self.data_to_save = init_data_buffers(self.max_samples)
+            self.logged_samples = 0
+            self.controller.start()
+        else:
+            self.tp = Teleplot(self.cfg["teleplot_ip"], self.cfg["teleplot_port"])
+            if self.cfg.get("trigger_type") == "mocap":
+                self.mocap_trigger = Mocap_trigger(
+                    server_ip=str(self.cfg.get("mocap_server_ip", "172.24.44.177")),
+                    port_number=int(self.cfg.get("mocap_server_port", 10)),
+                )
+                self.mocap_trigger.start_client()
+            self.hw = build_hip_hardware(self.cfg)
+            self.controller = build_controller(
+                self.cfg["controller_name"],
+                config=self.cfg,
+            )
+            self.data_log = build_data_log(self.cfg)
+            self.current_idx = 0
+            self.controller.start()
+            print("\n--- Dual Hip Exo Control Loop Started ---")
+            print(
+                f"Controller: {self.cfg['controller_name']} | "
+                f"backend: {self.cfg.get('motor_backend')}"
+            )
+            print(f"Teleplot: {self.cfg['teleplot_ip']}:{self.cfg['teleplot_port']}")
+            print("Press Ctrl+C to stop.")
 
     def shutdown(self):
         if self.hw:
@@ -414,22 +623,42 @@ class K5Runner:
         except Exception:
             pass
 
+        if not _is_state2torque(self.cfg):
+            print("Shutdown complete.")
+
     def save_logs(self):
-        save_data(
-            self.data_to_save,
-            str(self.cfg["trial_name"]),
-            self.logged_samples,
-            self.max_samples,
-        )
+        if _is_state2torque(self.cfg):
+            save_data(
+                self.data_to_save,
+                str(self.cfg["trial_name"]),
+                self.logged_samples,
+                self.max_samples,
+            )
+        else:
+            try:
+                print("Preparing data for saving...")
+                for key in self.data_log.keys():
+                    self.data_log[key] = self.data_log[key][: self.current_idx]
+                np.savez(self.cfg["trial_name"], **self.data_log)
+                print(f"=== Data saved: {self.cfg['trial_name']}.npz ===")
+            except Exception as e:
+                print(f"[save_data] error: {e}")
 
     def run(self):
         if self.hw is None or self.controller is None:
             raise RuntimeError("setup() must be called before run().")
+        if _is_state2torque(self.cfg):
+            self._run_state2torque()
+        else:
+            self._run_cascade()
 
+    def _run_state2torque(self):
         exo_on = bool(self.cfg["exo_on"])
         trigger_type = str(self.cfg["trigger_type"])
         telemetry_target_hz = float(self.cfg["telemetry_target_hz"])
-        telemetry_every_n = max(1, int(round(self.hw.control_freq_hz / telemetry_target_hz)))
+        telemetry_every_n = max(
+            1, int(round(self.hw.control_freq_hz / telemetry_target_hz))
+        )
 
         target_duration_sec = float(self.cfg["target_duration_sec"])
         target_time_range = float(self.cfg["target_time_range"])
@@ -463,12 +692,8 @@ class K5Runner:
             idx = self.logged_samples % self.max_samples
             time_1 = time.time()
 
-            current_pos_L, current_vel_L, current_torque_L = self.hw.motor_pos_vel_torque(
-                self.hw.can_id_L
-            )
-            current_pos_R, current_vel_R, current_torque_R = self.hw.motor_pos_vel_torque(
-                self.hw.can_id_R
-            )
+            current_pos_L, current_vel_L, _ = self.hw.motor_pos_vel_torque(self.hw.can_id_L)
+            current_pos_R, current_vel_R, _ = self.hw.motor_pos_vel_torque(self.hw.can_id_R)
 
             imu_P, imu_L, imu_R = self.hw.read_imu_triplet()
 
@@ -613,6 +838,191 @@ class K5Runner:
                 print("Target duration reached. Stopping trial.")
                 break
 
+    def _run_cascade(self):
+        if self.cfg["trigger_type"] == "typing":
+            input("Press Enter to start...\n")
+        elif self.cfg["trigger_type"] == "mocap":
+            if self.mocap_trigger is not None:
+                self.mocap_trigger.wait_for_trigger()
+            else:
+                print("[WARN] mocap_trigger is None; starting immediately.")
+        else:
+            raise ValueError(f"Unknown trigger_type: {self.cfg['trigger_type']}")
+
+        side = Side(self.cfg["side"])
+
+        rk = RateKeeper(self.cfg["fs"])
+        rk.start()
+        t0 = time.perf_counter()
+
+        trial_start_sec = 0.0
+        trial_dur_sec = float(self.cfg["exp_time_sec"])
+        pulse_after_start = float(self.cfg["GPIO_START_DELAY_SEC"])
+
+        first_pulse_sent = False
+        first_pulse_end: Optional[float] = None
+        second_pulse_sent = False
+        second_pulse_end: Optional[float] = None
+
+        invert_right = bool(self.cfg.get("invert_right_torque_cmd", True))
+        LOG_DIVIDER = 1
+
+        while True:
+            _, _, k = rk.wait()
+            step_start = time.perf_counter()
+            actual_time = step_start - t0
+
+            use_left = side in (Side.LEFT, Side.BOTH)
+            use_right = side in (Side.RIGHT, Side.BOTH)
+
+            imu_P, imu_L, imu_R = self.hw.read_imu_triplet()
+
+            pos_L = vel_L = 0.0
+            pos_R = vel_R = 0.0
+            if use_left:
+                pos_L, vel_L = self.hw.motor_pos_vel(self.hw.can_id_L)
+
+            if use_right:
+                pos_R, vel_R = self.hw.motor_pos_vel(self.hw.can_id_R)
+                pos_R *= -1
+                vel_R *= -1
+
+            s = Sensors(
+                imu_P=imu_P,
+                imu_L=imu_L,
+                imu_R=imu_R,
+                pos_L=pos_L,
+                pos_R=pos_R,
+                vel_L=vel_L,
+                vel_R=vel_R,
+            )
+
+            r = self.controller.step(s)
+
+            cmd_L = float(r.applied_L) if use_left else 0.0
+            cmd_R = float(r.applied_R) if use_right else 0.0
+
+            if not self.cfg["exo_on"]:
+                cmd_L = 0.0
+                cmd_R = 0.0
+
+            cmd_L *= float(self.cfg["scale"])
+            cmd_R *= float(self.cfg["scale"])
+
+            lim = float(self.cfg["torque_limit"])
+            cmd_L = clamp(cmd_L, -lim, lim)
+            cmd_R = clamp(cmd_R, -lim, lim)
+
+            if use_left:
+                self.hw.set_torque(self.hw.can_id_L, cmd_L)
+            else:
+                self.hw.set_torque(self.hw.can_id_L, 0.0)
+
+            if use_right:
+                self.hw.set_torque(self.hw.can_id_R, (-cmd_R) if invert_right else cmd_R)
+            else:
+                self.hw.set_torque(self.hw.can_id_R, 0.0)
+
+            now = actual_time
+
+            if (not first_pulse_sent) and (now >= trial_start_sec + pulse_after_start):
+                try:
+                    self.gpio.pulse_start()
+                except Exception as e:
+                    print(f"[GPIO] first pulse_start error: {e}")
+                first_pulse_sent = True
+                first_pulse_end = now + float(self.cfg["PULSE_WIDTH_SEC"])
+
+            if first_pulse_sent and first_pulse_end is not None and now >= first_pulse_end:
+                try:
+                    self.gpio.pulse_end()
+                except Exception as e:
+                    print(f"[GPIO] first pulse_end error: {e}")
+                first_pulse_end = None
+
+            if (not second_pulse_sent) and (now >= trial_start_sec + trial_dur_sec):
+                try:
+                    self.gpio.pulse_start()
+                except Exception as e:
+                    print(f"[GPIO] second pulse_start error: {e}")
+                second_pulse_sent = True
+                second_pulse_end = now + float(self.cfg["PULSE_WIDTH_SEC"])
+
+            if second_pulse_sent and second_pulse_end is not None and now >= second_pulse_end:
+                try:
+                    self.gpio.pulse_end()
+                except Exception as e:
+                    print(f"[GPIO] second pulse_end error: {e}")
+                second_pulse_end = None
+
+            step_end = time.perf_counter()
+            gpio_state = float(self.gpio.state())
+
+            if k % LOG_DIVIDER == 0 and self.tp is not None:
+                try:
+                    self.tp.sendValue("cmd_L", cmd_L)
+                    self.tp.sendValue("cmd_R", cmd_R)
+                    self.tp.sendValue("model_out_L", r.model_out_L)
+                    self.tp.sendValue("model_out_R", r.model_out_R)
+                    self.tp.sendValue("applied_L", r.applied_L)
+                    self.tp.sendValue("applied_R", r.applied_R)
+                    self.tp.sendValue("hip_L", pos_L)
+                    self.tp.sendValue("hip_R", pos_R)
+                    self.tp.sendValue("gyro_r", float(imu_R[4]))
+                    self.tp.sendValue("gyro_l", float(imu_L[4]))
+                    self.tp.sendValue("GPIO", gpio_state)
+                    self.tp.sendValue("roop_time", step_end - step_start)
+                    self.tp.sendValue(
+                        "model_in_angle_raw", r.extra.get("model_in_angle_raw", 0.0)
+                    )
+                    self.tp.sendValue(
+                        "model_in_vel_raw", r.extra.get("model_in_vel_raw", 0.0)
+                    )
+                    self.tp.sendValue("model_out_nmpkg", r.extra.get("model_out_nmpkg", 0.0))
+                    self.tp.sendValue("moment_raw", r.extra.get("moment_raw", 0.0))
+                    self.tp.sendValue("assist_gate", r.extra.get("assist_gate", 0.0))
+                    self.tp.sendValue("motion_score", r.extra.get("motion_score", 0.0))
+                    self.tp.sendValue("state", r.extra.get("state", 0.0))
+                except Exception:
+                    pass
+
+            if self.current_idx < len(self.data_log["time"]):
+                self.data_log["time"][self.current_idx] = actual_time
+                self.data_log["hip_pos_L"][self.current_idx] = pos_L
+                self.data_log["hip_pos_R"][self.current_idx] = pos_R
+                self.data_log["hip_vel_L"][self.current_idx] = vel_L
+                self.data_log["hip_vel_R"][self.current_idx] = vel_R
+                self.data_log["cmd_L"][self.current_idx] = cmd_L
+                self.data_log["cmd_R"][self.current_idx] = cmd_R
+                self.data_log["model_out_L"][self.current_idx] = r.model_out_L
+                self.data_log["model_out_R"][self.current_idx] = r.model_out_R
+                self.data_log["applied_L"][self.current_idx] = r.applied_L
+                self.data_log["applied_R"][self.current_idx] = r.applied_R
+                self.data_log["imu_P"][self.current_idx] = imu_P
+                self.data_log["imu_L"][self.current_idx] = imu_L
+                self.data_log["imu_R"][self.current_idx] = imu_R
+                self.data_log["GPIO"][self.current_idx] = gpio_state
+                self.data_log["model_in_angle_raw"][self.current_idx] = r.extra.get(
+                    "model_in_angle_raw", 0.0
+                )
+                self.data_log["model_in_vel_raw"][self.current_idx] = r.extra.get(
+                    "model_in_vel_raw", 0.0
+                )
+                self.data_log["model_out_nmpkg"][self.current_idx] = r.extra.get(
+                    "model_out_nmpkg", 0.0
+                )
+                self.data_log["moment_raw"][self.current_idx] = r.extra.get(
+                    "moment_raw", 0.0
+                )
+                self.data_log["assist_gate"][self.current_idx] = r.extra.get(
+                    "assist_gate", 0.0
+                )
+                self.data_log["motion_score"][self.current_idx] = r.extra.get(
+                    "motion_score", 0.0
+                )
+                self.data_log["state"][self.current_idx] = r.extra.get("state", 0.0)
+
+            self.current_idx += 1
 
 def _handle_signal(sig, frame):
     global _RUNNER
@@ -638,7 +1048,7 @@ def main():
     cfg = load_config(args.config)
     print_config(cfg)
 
-    runner = K5Runner(cfg)
+    runner = DualHipRunner(cfg)
     _RUNNER = runner
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)

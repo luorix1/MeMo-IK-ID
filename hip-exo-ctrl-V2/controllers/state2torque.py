@@ -1,26 +1,27 @@
 """
-State2Torque K5 bilateral controller (IMU-window TRT + biotorque pipeline).
+Bilateral State2Torque controller: IMU-window TensorRT + biotorque pipeline.
 
-Matches behavior of `allnewK5_6min_Cleaned_PreAlloc last 2min.py`: 6-DOF IMU per side
-(right raw thigh, left thigh with Y acc/gyr sign pattern reflected), single scalar
-output per inference, mass scaling, feedback cancellation, gain delay, Butterworth.
+Ported from the standalone State2Torque reference controller: 6-DOF IMU per side
+(right thigh raw, left thigh with reflected Y acc/gyr), scalar output per side,
+mass scaling, feedback cancellation, gain delay, Butterworth filtering.
 """
 
 from __future__ import annotations
 
+import multiprocessing as mp
 import os
 import queue
 
 import numpy as np
 
-from utils.k5_helper import LowpassFilter, fast_roll
+from utils.utils import LowpassFilter, fast_roll
 
 from .base import BaseController, CtrlResult, Sensors
-from .trt_worker_k5 import TRTWorkerK5
+from .trt_worker_state2torque import TRTWorkerState2Torque
 
 
-class State2TorqueK5(BaseController):
-    name = "state2torque_k5"
+class State2Torque(BaseController):
+    name = "state2torque"
 
     def __init__(self, config: dict):
         self.trt_engine_path = str(config["trt_engine_path"])
@@ -71,12 +72,12 @@ class State2TorqueK5(BaseController):
 
         self.input_q: mp.Queue | None = None
         self.output_q: mp.Queue | None = None
-        self.worker: TRTWorkerK5 | None = None
+        self.worker: TRTWorkerState2Torque | None = None
 
     def start(self):
         self.input_q = mp.Queue()
         self.output_q = mp.Queue()
-        self.worker = TRTWorkerK5(
+        self.worker = TRTWorkerState2Torque(
             self.input_q,
             self.output_q,
             self.trt_engine_path,
@@ -102,7 +103,6 @@ class State2TorqueK5(BaseController):
             pass
 
     def step(self, s: Sensors) -> CtrlResult:
-        local_p_data = np.asarray(s.imu_P, dtype=np.float32).reshape(6).copy()
         local_l_data = np.asarray(s.imu_L, dtype=np.float32).reshape(6).copy()
         local_r_data = np.asarray(s.imu_R, dtype=np.float32).reshape(6).copy()
 

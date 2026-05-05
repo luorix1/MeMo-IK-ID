@@ -1,8 +1,7 @@
-# Hip exo V2 — State2Torque K5 (IMU-window TRT + biotorque), mirroring
-# `allnewK5_6min_Cleaned_PreAlloc last 2min.py`. Point `trt_engine_path` and
-# `sensor_python_paths` at your machine.
+# Bilateral State2Torque — IMU-window TRT + biotorque (hip-exo-ctrl-V2).
+# Point `trt_engine_path` and `sensor_python_paths` at your machine.
 
-controller_name: "state2torque_k5"
+controller_name: "state2torque"
 
 trial_name: "SUB01"
 exo_on: false

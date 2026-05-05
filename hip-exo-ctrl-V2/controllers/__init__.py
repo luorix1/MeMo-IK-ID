@@ -1,7 +1,9 @@
-from .state2torque_k5 import State2TorqueK5
+from .cascade import CascadeHip
+from .state2torque import State2Torque
 
 REGISTRY = {
-    State2TorqueK5.name: State2TorqueK5,
+    State2Torque.name: State2Torque,
+    CascadeHip.name: CascadeHip,
 }
 
 

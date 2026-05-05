@@ -1,4 +1,4 @@
-"""TensorRT worker: bilateral IMU-window model (same I/O as legacy State2Torque K5 script)."""
+"""TensorRT subprocess worker: bilateral IMU-window model (scalar output, R then L)."""
 
 import multiprocessing as mp
 
@@ -15,8 +15,8 @@ def _trt_inference(input_data: np.ndarray, context, d_input: torch.Tensor, d_out
     return float(d_output.item())
 
 
-class TRTWorkerK5(mp.Process):
-    """Subprocess: one shared engine; infer right then left windows each step."""
+class TRTWorkerState2Torque(mp.Process):
+    """One shared engine; each job runs right window then left window."""
 
     def __init__(
         self,
@@ -44,7 +44,7 @@ class TRTWorkerK5(mp.Process):
 
     def run(self):
         if not torch.cuda.is_available():
-            print("[TRTWorkerK5] CUDA not available; worker exiting.")
+            print("[TRTWorkerState2Torque] CUDA not available; worker exiting.")
             return
 
         logger = trt.Logger(trt.Logger.WARNING)
@@ -53,7 +53,7 @@ class TRTWorkerK5(mp.Process):
             serialized_engine = f.read()
         engine = runtime.deserialize_cuda_engine(serialized_engine)
         if engine is None:
-            print("[TRTWorkerK5] Failed to deserialize TensorRT engine.")
+            print("[TRTWorkerState2Torque] Failed to deserialize TensorRT engine.")
             return
         context = engine.create_execution_context()
 
@@ -76,7 +76,7 @@ class TRTWorkerK5(mp.Process):
             try:
                 data_in = self.input_q.get()
                 if data_in is None:
-                    print("[TRTWorkerK5] Stop signal received. Exiting.")
+                    print("[TRTWorkerState2Torque] Stop signal received. Exiting.")
                     break
 
                 model_input_r_arr, model_input_l_arr = data_in
@@ -89,10 +89,10 @@ class TRTWorkerK5(mp.Process):
 
                 self.output_q.put((model_output_r, model_output_l))
             except Exception as e:
-                print(f"[TRTWorkerK5] Error during inference: {e}")
+                print(f"[TRTWorkerState2Torque] Error during inference: {e}")
                 break
 
         del context
         del engine
         del runtime
-        print("[TRTWorkerK5] Exited.")
+        print("[TRTWorkerState2Torque] Exited.")

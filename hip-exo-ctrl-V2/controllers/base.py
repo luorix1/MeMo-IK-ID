@@ -34,3 +34,20 @@ class BaseController:
 
     def close(self):
         pass
+
+
+class RollingWindow:
+    def __init__(self, shape, dtype=np.float32):
+        shape = tuple(int(x) for x in shape)
+        if len(shape) < 2:
+            raise ValueError("RollingWindow shape must be at least 2D: (..., T)")
+        self.buf = np.zeros(shape, dtype=dtype)
+        self._last_slice_shape = self.buf.shape[:-1]
+
+    def push_last(self, arr_last):
+        arr_last = np.asarray(arr_last, dtype=self.buf.dtype)
+        arr_last = arr_last.reshape(self._last_slice_shape)
+
+        self.buf[..., :-1] = self.buf[..., 1:]
+        self.buf[..., -1] = arr_last
+        return self.buf
