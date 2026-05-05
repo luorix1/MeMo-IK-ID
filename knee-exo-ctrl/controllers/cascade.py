@@ -13,9 +13,13 @@ Normalization is taken from training checkpoint:
   ch0 : pos_mean[9], pos_std[9]   (knee_angle_r from the dataset; left side is sign-flipped
                                     by the unilateral pipeline to match this convention)
   ch1 : vel_mean[9], vel_std[9]
+
+Optional YAML `delay` (seconds): FIFO delay on scaled joint torque before LPF / rate limit
+(same as knee biotorque / hip cascade_hip). Delay length in samples ≈ round(delay * fs).
 """
 
 import multiprocessing as mp
+from collections import deque
 from queue import Empty, Full
 
 import numpy as np
@@ -147,6 +151,12 @@ class CascadeUni(BaseController):
         self.ramp_up_s         = 0.40
         self.ramp_down_s       = 0.12
 
+        # Optional output delay (seconds): FIFO on scaled torque before LPF / rate limit.
+        self.delay = float(config.get("delay", 0.0))
+        self.delay_steps = max(0, int(round(self.delay * self.fs)))
+        dlen = max(1, self.delay_steps + 1)
+        self.torque_buf = deque([0.0] * dlen, maxlen=dlen)
+
     # ------------------------------------------------------------------ #
     #  Lifecycle
     # ------------------------------------------------------------------ #
@@ -186,6 +196,10 @@ class CascadeUni(BaseController):
     def _rate_limit(self, current: float, prev: float, rate_max: float) -> float:
         max_step = rate_max * self.dt
         return float(prev + np.clip(current - prev, -max_step, +max_step))
+
+    def _delay_push_and_get(self, buf: deque, value: float) -> float:
+        buf.append(float(value))
+        return float(buf[0])
 
     def _get_latest_inference(self):
         latest = None
@@ -303,8 +317,10 @@ class CascadeUni(BaseController):
         # apply it to torque.
         moment_cmd = moment_raw
 
+        moment_delayed = self._delay_push_and_get(self.torque_buf, moment_cmd)
+
         # torque LPF → rate limit → hard clamp
-        self.torque_filt = self._lpf(self.torque_filt, moment_cmd, self.torque_filter_tau)
+        self.torque_filt = self._lpf(self.torque_filt, moment_delayed, self.torque_filter_tau)
         tau = self._rate_limit(self.torque_filt, self.prev_cmd, self.cmd_rate_max)
         tau = float(np.clip(tau, -self.torque_limit, self.torque_limit))
         self.prev_cmd = tau
@@ -333,6 +349,7 @@ class CascadeUni(BaseController):
                 "model_out_nmpkg_raw": float(model_out_nmpkg_raw),
                 "model_out_nmpkg": float(model_out_nmpkg),
                 "moment_raw":      float(moment_raw),
+                "moment_delayed":  float(moment_delayed),
                 "moment_cmd":      float(moment_cmd),
                 "assist_gate":     float(self.assist_gate),
                 "motion_score":    float(self.motion_score),
