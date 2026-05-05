@@ -1,0 +1,48 @@
+# Hip exo V2 — State2Torque K5 (IMU-window TRT + biotorque), mirroring
+# `allnewK5_6min_Cleaned_PreAlloc last 2min.py`. Point `trt_engine_path` and
+# `sensor_python_paths` at your machine.
+
+controller_name: "state2torque_k5"
+
+trial_name: "SUB01"
+exo_on: false
+
+trigger_type: "mocap"   # "mocap" | "typing"
+mocap_server_ip: "172.24.44.177"
+mocap_server_port: 10
+
+telemetry_target_hz: 50
+
+# TensorRT model (directory must also contain input_mean.npy, input_std.npy, label_mean.npy, label_std.npy)
+trt_engine_path: "/path/to/model/OpenSim_ALL_DEP_LG_0403.trt"
+
+frame_length: 95
+fs: 100
+
+body_mass_kg: 72.0
+scale_factor_percent: 20
+desired_delay_ms: 110
+
+collect_last_sec: 125
+target_duration_sec: 368
+target_time_range: 360
+
+torque_limit: 18.0
+
+can_channel: "can0"
+can_id_L: 1
+can_id_R: 2
+motor_model: "AK80-9"
+
+imu_module: "Header_ICM20948_I2C_pcb2"
+sensor_python_paths:
+  # Parent folder containing Header_ICM20948_I2C_pcb2.py, epicpower_tmotorV3/, etc.
+  - "/path/to/V2_Hip_Exo-main/State2Torque 2 Controllers"
+
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+gpio_first_pulse_at_sec: 3.0
+gpio_second_pulse_offset_sec: 360
