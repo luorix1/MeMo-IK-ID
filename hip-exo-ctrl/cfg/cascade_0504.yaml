@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------
+# Bilateral Hip Cascade Controller — Config
+# Controller : cascade_hip
+# Model      : os_kinetics TCN (sagittal_hip, bilateral)
+#
+# Model input  : (2, 2, frame_length)   — batch of 2 (right=0, left=1)
+#   ch0 — hip encoder angle  (rad, sign-corrected to right convention)
+#   ch1 — hip angular velocity: −thigh_Gyr_Y − pelvis_Gyr_Y (rad/s)
+# Model output : (2, 1) → Nm/kg per side; left output sign-flipped before applying
+# ---------------------------------------------------------------
+
+trial_name: "cascade_0504"
+exo_on: true
+trigger_type: "typing"
+
+# "both" — bilateral controller always drives both sides
+side: "both"
+
+controller_name: "cascade_hip"
+trt_engine_path: "../best_model_0504.trt"
+
+frame_length: 100
+input_size: 2
+output_size: 1
+fs: 100
+exp_time_sec: 360
+
+# ---- output scaling ----
+# Training moments are stored as Nm/kg (body-mass normalized).
+# The controller multiplies model output by mass to get Nm, then by scale.
+# Final torque (Nm) = model_out (Nm/kg) × mass (kg) × scale
+mass: 88.0          # subject body mass (kg) — update per subject
+scale: 0.3          # dimensionless gain (set < 1.0 to reduce assistance)
+torque_limit: 15.0  # hard clamp (Nm)
+
+# Output delay before torque LPF / rate limit (seconds). Same pattern as knee biotorque
+# config: delay_steps ≈ round(delay * fs). 0.12 s @ 100 Hz ≈ 12 samples (120 ms).
+delay: 0.12
+
+# ---- normalization stats from training checkpoint ----
+# ch0: hip encoder angle (rad)
+hip_angle_mean: 0.0
+hip_angle_std:  1.0
+
+# ch1: hip angular velocity — −thigh_Gyr_Y − pelvis_Gyr_Y (rad/s)
+hip_vel_mean:   0.0
+hip_vel_std:    1.0
+
+# ---- inference-path causal low-pass ----
+infer_lpf_hz:    15.0
+infer_lpf_order: 4
+
+# ---- hardware ----
+invert_right_torque_cmd: true
+motor_backend: tmotor_v3
+sensor_package: hip_exo.sensor_motor
+sensor_python_paths:
+  - /home/metamobility1/Public/hip_exo/hip_exo
+
+can_channel: "can0"
+can_id_L: 1
+can_id_R: 2
+motor_model: AK80-9
+
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+
+# ---- GPIO sync pulses ----
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+GPIO_START_DELAY_SEC: 2.0
