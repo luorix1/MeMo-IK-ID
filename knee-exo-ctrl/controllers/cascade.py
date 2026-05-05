@@ -319,10 +319,9 @@ class CascadeUni(BaseController):
 
         moment_delayed = self._delay_push_and_get(self.torque_buf, moment_cmd)
 
-        # torque LPF → rate limit → hard clamp
+        # torque LPF → rate limit
         self.torque_filt = self._lpf(self.torque_filt, moment_delayed, self.torque_filter_tau)
         tau = self._rate_limit(self.torque_filt, self.prev_cmd, self.cmd_rate_max)
-        tau = float(np.clip(tau, -self.torque_limit, self.torque_limit))
         self.prev_cmd = tau
 
         # ---- pack into bilateral CtrlResult (zero the inactive side) ----
