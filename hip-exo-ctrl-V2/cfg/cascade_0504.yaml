@@ -51,10 +51,16 @@ infer_lpf_hz:    15.0
 infer_lpf_order: 4
 
 # ---- hardware ----
+# `auto`: try local folder (sensor_python_paths) first — same layout as V2 State2Torque
+#   (sibling `epicpower_tmotorV3` + `Header_ICM20948_I2C.py`), no `hip_exo` pip package needed.
+# Optional: `imu_module: Header_ICM20948_I2C_pcb2` if you use the PCB2 header instead.
 invert_right_torque_cmd: true
 motor_backend: tmotor_v3
-sensor_package: hip_exo.sensor_motor
+sensor_package: auto
+imu_module: Header_ICM20948_I2C
 sensor_python_paths:
+  # Must contain `epicpower_tmotorV3/` and `Header_ICM20948_I2C.py` (or pcb2) — e.g. V2 State2Torque folder:
+  # - "/path/to/V2_Hip_Exo-main/State2Torque 2 Controllers"
   - /home/metamobility1/Public/hip_exo/hip_exo
 
 can_channel: "can0"

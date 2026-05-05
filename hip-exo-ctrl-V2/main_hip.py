@@ -170,21 +170,73 @@ class EpicPowerHipHardware:
             pass
 
 
+def _resolve_tmotor_imu_stack(cfg: dict):
+    """Import TMotor + ICM stack. No `hip_exo` install required if `sensor_python_paths` is set.
+
+    Resolution order depends on `sensor_package`:
+      - ``auto`` (default): local path modules → ``sensor_motor`` → ``hip_exo.sensor_motor``
+      - ``local``: ``imu_module`` (default Header_ICM20948_I2C) + ``epicpower_tmotorV3`` on PYTHONPATH
+      - ``sensor_motor`` / ``hip_exo.sensor_motor``: try that first, then fallbacks.
+
+    Local layout matches V2 State2Torque scripts (sibling ``epicpower_tmotorV3`` + ``Header_ICM20948*.py``).
+    """
+    _prepend_paths(cfg.get("sensor_python_paths") or [])
+    pkg = str(cfg.get("sensor_package", "auto")).strip().lower()
+    imu_mod = str(cfg.get("imu_module", "Header_ICM20948_I2C"))
+
+    def _local():
+        icm = __import__(imu_mod, fromlist=["ICM20948_I2C_IMUs"])
+        ICM20948_I2C_IMUs = icm.ICM20948_I2C_IMUs
+        from epicpower_tmotorV3.actuator_group import ActuatorGroup
+        from epicpower_tmotorV3.tmotor_v3 import TMotorV3
+
+        return ICM20948_I2C_IMUs, ActuatorGroup, TMotorV3
+
+    def _sensor_motor():
+        from sensor_motor.Header_ICM20948_I2C import ICM20948_I2C_IMUs
+        from sensor_motor.epicpower_tmotorV3.actuator_group import ActuatorGroup
+        from sensor_motor.epicpower_tmotorV3.tmotor_v3 import TMotorV3
+
+        return ICM20948_I2C_IMUs, ActuatorGroup, TMotorV3
+
+    def _hip_exo():
+        from hip_exo.sensor_motor.Header_ICM20948_I2C import ICM20948_I2C_IMUs
+        from hip_exo.sensor_motor.epicpower_tmotorV3.actuator_group import ActuatorGroup
+        from hip_exo.sensor_motor.epicpower_tmotorV3.tmotor_v3 import TMotorV3
+
+        return ICM20948_I2C_IMUs, ActuatorGroup, TMotorV3
+
+    if pkg in ("hip_exo.sensor_motor", "hip_exo"):
+        order = (_hip_exo, _local, _sensor_motor)
+    elif pkg == "sensor_motor":
+        order = (_sensor_motor, _local, _hip_exo)
+    elif pkg == "local":
+        order = (_local, _sensor_motor, _hip_exo)
+    else:
+        order = (_local, _sensor_motor, _hip_exo)
+
+    last_err = None
+    for loader in order:
+        try:
+            return loader()
+        except Exception as e:
+            last_err = e
+            continue
+
+    raise ImportError(
+        "Could not import TMotor/IMU stack. For Jetsons without the `hip_exo` package, set "
+        "YAML `sensor_package: auto` or `local`, and add the folder that contains "
+        "`epicpower_tmotorV3` and your `Header_ICM20948_*.py` to `sensor_python_paths` "
+        "(same as the V2 State2Torque controller folder). "
+        f"Last error: {last_err!r}"
+    ) from last_err
+
+
 class TMotorV3HipHardware:
-    """TMotorV3 + flat 18-vector IMUs; encoder rad/s (cascade path, hip-exo-ctrl-V1)."""
+    """TMotorV3 + IMUs; encoder rad/s. IMU may be flat (18) or dict P/L/R (State2Torque headers)."""
 
     def __init__(self, cfg: dict):
-        _prepend_paths(cfg.get("sensor_python_paths") or [])
-        pkg = str(cfg.get("sensor_package", "sensor_motor"))
-        if pkg == "hip_exo.sensor_motor":
-            from hip_exo.sensor_motor.Header_ICM20948_I2C import ICM20948_I2C_IMUs
-            from hip_exo.sensor_motor.epicpower_tmotorV3.actuator_group import ActuatorGroup
-            from hip_exo.sensor_motor.epicpower_tmotorV3.tmotor_v3 import TMotorV3
-        else:
-            from sensor_motor.Header_ICM20948_I2C import ICM20948_I2C_IMUs
-            from sensor_motor.epicpower_tmotorV3.actuator_group import ActuatorGroup
-            from sensor_motor.epicpower_tmotorV3.tmotor_v3 import TMotorV3
-
+        ICM20948_I2C_IMUs, ActuatorGroup, TMotorV3 = _resolve_tmotor_imu_stack(cfg)
         self.can_id_L = int(cfg["can_id_L"])
         self.can_id_R = int(cfg["can_id_R"])
         self.motor_model = str(cfg.get("motor_model", "AK80-9"))
@@ -206,9 +258,14 @@ class TMotorV3HipHardware:
 
     def read_imu_triplet(self):
         imu = self.imus.read_IMUs()
+        if isinstance(imu, dict):
+            imu_P = np.asarray(imu["IMU_PELVIS"], dtype=np.float32)
+            imu_L = np.asarray(imu["IMU_THIGH_LEFT"], dtype=np.float32)
+            imu_R = np.asarray(imu["IMU_THIGH_RIGHT"], dtype=np.float32)
+            return imu_P, imu_L, imu_R
         flat = np.asarray(imu, dtype=np.float32).reshape(-1)
         if flat.size < 18:
-            raise RuntimeError(f"Expected 18 IMU scalars, got length {flat.size}")
+            raise RuntimeError(f"Expected dict IMUs or 18-vector flat layout, got length {flat.size}")
         imu_P = flat[0:6].copy()
         imu_L = flat[6:12].copy()
         imu_R = flat[12:18].copy()
