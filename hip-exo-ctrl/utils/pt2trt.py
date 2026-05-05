@@ -29,6 +29,7 @@ Examples:
 """
 
 import argparse
+import inspect
 import os
 import sys
 
@@ -114,6 +115,12 @@ def _install_numpy_core_shim() -> None:
                 sys.modules[alias] = sys.modules[key]
 
 
+def _tcn_ctor_kwargs(cfg: dict) -> dict:
+    """Drop checkpoint-only keys (e.g. ``model_type``) before ``TCN(**kwargs)``."""
+    allowed = {k for k in inspect.signature(TCN.__init__).parameters if k != "self"}
+    return {k: v for k, v in cfg.items() if k in allowed}
+
+
 def load_checkpoint(pt_path: str) -> dict:
     """Load checkpoint, handling numpy._core / numpy.core version mismatch."""
     try:
@@ -170,7 +177,8 @@ def pt_to_trt(
     # ------------------------------------------------------------------
     # 2. Build model and load weights
     # ------------------------------------------------------------------
-    tcn = TCN(**model_config).eval()
+    tcn_kw = _tcn_ctor_kwargs(model_config)
+    tcn = TCN(**tcn_kw).eval()
     tcn.load_state_dict(ckpt["model_state_dict"])
     model = _TCNLastStep(tcn).eval().cuda()
     print(f"[INFO] Model built — parameters: {sum(p.numel() for p in tcn.parameters()):,}")
