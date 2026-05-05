@@ -36,6 +36,10 @@ torque_limit: 16.0   # hard clamp (Nm)
 # Output delay before torque LPF / rate limit (seconds). Same pattern as biotorque / hip cascade.
 delay: 0
 
+# LPF settings
+infer_lpf_hz: 10
+infer_lpf_order: 4
+
 # ---- normalization stats from training checkpoint ----
 # Source: runs/0423_ik_id_knee_huber_noise/best_model.pt  → ckpt["normalization"]
 # Both sides are normalized identically (unilateral training sign-corrects left
