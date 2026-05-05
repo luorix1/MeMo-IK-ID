@@ -20,12 +20,16 @@ Applied torques:
   right: −model_out[0] × mass × torque_scale  (FIXME: sign flip — verify on hardware)
   left:  +model_out[1] × mass × torque_scale  (FIXME: sign flip — verify on hardware)
 
+Optional YAML `delay` (seconds): FIFO delay on scaled joint torque before LPF / rate limit
+(same idea as knee-exo-ctrl biotorque). Delay length in samples ≈ round(delay * fs).
+
 IMU layout — 6-vector [Acc_X, Acc_Y, Acc_Z, Gyr_X, Gyr_Y, Gyr_Z]:
   index 4 (Gyr_Y) is the sagittal-plane angular velocity for hip flex/extension.
   Gyro data arrives in deg/s from ICM20948 — converted to rad/s here.
 """
 
 import multiprocessing as mp
+from collections import deque
 from queue import Empty, Full
 
 import numpy as np
@@ -208,6 +212,14 @@ class CascadeHip(BaseController):
         self.torque_filt_r = 0.0
         self.torque_filt_l = 0.0
 
+        # Optional output delay (seconds), same convention as knee-exo-ctrl biotorque:
+        # delay_steps = round(delay * fs); FIFO held torque before LPF / rate limit.
+        self.delay = float(config.get("delay", 0.0))
+        self.delay_steps = max(0, int(round(self.delay * self.fs)))
+        dlen = max(1, self.delay_steps + 1)
+        self.torque_buf_r = deque([0.0] * dlen, maxlen=dlen)
+        self.torque_buf_l = deque([0.0] * dlen, maxlen=dlen)
+
         # per-side motion gates
         self.gate_r = _MotionGate(self.fs, self.dt)
         self.gate_l = _MotionGate(self.fs, self.dt)
@@ -248,6 +260,10 @@ class CascadeHip(BaseController):
     def _rate_limit(self, current: float, prev: float) -> float:
         max_step = self.cmd_rate_max * self.dt
         return float(prev + np.clip(current - prev, -max_step, +max_step))
+
+    def _delay_push_and_get(self, buf: deque, value: float) -> float:
+        buf.append(float(value))
+        return float(buf[0])
 
     def _get_latest_inference(self):
         latest = None
@@ -325,15 +341,15 @@ class CascadeHip(BaseController):
         moment_r = model_out_r * self.mass * self.torque_scale
         moment_l = model_out_l * self.mass * self.torque_scale
 
+        moment_r_d = self._delay_push_and_get(self.torque_buf_r, moment_r)
+        moment_l_d = self._delay_push_and_get(self.torque_buf_l, moment_l)
+
         # ---- torque LPF → rate limit → clamp ----
-        self.torque_filt_r = self._lpf(self.torque_filt_r, moment_r, self.torque_filter_tau)
-        self.torque_filt_l = self._lpf(self.torque_filt_l, moment_l, self.torque_filter_tau)
+        self.torque_filt_r = self._lpf(self.torque_filt_r, moment_r_d, self.torque_filter_tau)
+        self.torque_filt_l = self._lpf(self.torque_filt_l, moment_l_d, self.torque_filter_tau)
 
         tau_r = self._rate_limit(self.torque_filt_r, self.prev_cmd_r)
         tau_l = self._rate_limit(self.torque_filt_l, self.prev_cmd_l)
-
-        # tau_r = float(np.clip(tau_r, -self.torque_limit, self.torque_limit))
-        # tau_l = float(np.clip(tau_l, -self.torque_limit, self.torque_limit))
 
         self.prev_cmd_r = tau_r
         self.prev_cmd_l = tau_l
@@ -352,6 +368,8 @@ class CascadeHip(BaseController):
                 "model_in_vel_raw":    float(vel_r_raw),
                 "model_out_nmpkg":     float(model_out_r),
                 "moment_raw":          float(moment_r),
+                "moment_delayed_r":    float(moment_r_d),
+                "moment_delayed_l":    float(moment_l_d),
                 "assist_gate_r":       assist_gate_r,
                 "assist_gate_l":       assist_gate_l,
                 "motion_score_r":      float(self.gate_r.motion_score),

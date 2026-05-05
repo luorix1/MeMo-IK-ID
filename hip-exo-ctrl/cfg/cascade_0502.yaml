@@ -33,6 +33,10 @@ mass: 88.0          # subject body mass (kg) — update per subject
 scale: 0.4          # dimensionless gain (set < 1.0 to reduce assistance)
 torque_limit: 15.0  # hard clamp (Nm)
 
+# Output delay before torque LPF / rate limit (seconds). Same pattern as knee biotorque
+# config: delay_steps ≈ round(delay * fs). 0.12 s @ 100 Hz ≈ 12 samples (120 ms).
+delay: 0.12
+
 # ---- normalization stats from training checkpoint ----
 # ch0: hip encoder angle (rad)
 hip_angle_mean: 0.0
