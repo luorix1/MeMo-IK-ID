@@ -480,11 +480,13 @@ class DualHipRunner:
             cmd_R = clamp(cmd_R, -lim, lim)
 
             if use_left:
+                # Left motor torque + = hip flexion
                 self.hw.set_torque(self.hw.can_id_L, cmd_L)
             else:
                 self.hw.set_torque(self.hw.can_id_L, 0.0)
 
             if use_right:
+                # Right motor torque + = hip extension
                 self.hw.set_torque(self.hw.can_id_R, (-cmd_R) if invert_right else cmd_R)
             else:
                 self.hw.set_torque(self.hw.can_id_R, 0.0)

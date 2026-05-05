@@ -154,6 +154,7 @@ class CascadeHip(BaseController):
         # accept either "scale" (flat-config style, like cascade_0425) or "torque_scale"
         self.torque_scale = float(config.get("scale", config.get("torque_scale", 1.0)))
         self.torque_limit = float(config.get("torque_limit", 15.0))
+        print("**********torque limit: ", self.torque_limit)
 
         self.input_size  = int(config.get("input_size",  2))
         self.output_size = int(config.get("output_size", 1))
@@ -277,9 +278,9 @@ class CascadeHip(BaseController):
         vel_r_raw = -np.deg2rad(float(s.imu_R[4])) - pelvis_gyr_y
 
         # ---- left side (sign-corrected to match right convention) ----
-        enc_l_raw = -float(s.pos_L)
+        enc_l_raw = float(s.pos_L)
         # raw left: −thigh_Gyr_Y − pelvis_Gyr_Y → negate for right convention
-        vel_l_raw = np.deg2rad(float(s.imu_L[4])) + pelvis_gyr_y
+        vel_l_raw = -np.deg2rad(float(s.imu_L[4])) + pelvis_gyr_y
 
         # ---- telemetry LPFs (display only) ----
         self.hip_angle_filt_r = self._lpf(self.hip_angle_filt_r, enc_r_raw, self.hip_filter_tau)
@@ -331,8 +332,8 @@ class CascadeHip(BaseController):
         tau_r = self._rate_limit(self.torque_filt_r, self.prev_cmd_r)
         tau_l = self._rate_limit(self.torque_filt_l, self.prev_cmd_l)
 
-        tau_r = float(np.clip(tau_r, -self.torque_limit, self.torque_limit))
-        tau_l = float(np.clip(tau_l, -self.torque_limit, self.torque_limit))
+        # tau_r = float(np.clip(tau_r, -self.torque_limit, self.torque_limit))
+        # tau_l = float(np.clip(tau_l, -self.torque_limit, self.torque_limit))
 
         self.prev_cmd_r = tau_r
         self.prev_cmd_l = tau_l

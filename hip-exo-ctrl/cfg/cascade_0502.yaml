@@ -30,7 +30,7 @@ exp_time_sec: 360
 # The controller multiplies model output by mass to get Nm, then by scale.
 # Final torque (Nm) = model_out (Nm/kg) × mass (kg) × scale
 mass: 88.0          # subject body mass (kg) — update per subject
-scale: 0.3          # dimensionless gain (set < 1.0 to reduce assistance)
+scale: 0.4          # dimensionless gain (set < 1.0 to reduce assistance)
 torque_limit: 15.0  # hard clamp (Nm)
 
 # ---- normalization stats from training checkpoint ----
@@ -43,7 +43,7 @@ hip_vel_mean:   0.0
 hip_vel_std:    1.0
 
 # ---- inference-path causal low-pass ----
-infer_lpf_hz:    4.0
+infer_lpf_hz:    15.0
 infer_lpf_order: 4
 
 # ---- hardware ----
