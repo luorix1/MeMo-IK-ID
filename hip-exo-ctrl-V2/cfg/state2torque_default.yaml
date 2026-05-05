@@ -34,8 +34,9 @@ can_id_R: 2
 motor_model: "AK80-9"
 
 imu_module: "Header_ICM20948_I2C_pcb2"
+tmotor_package: epicpower_tmotorV3
 sensor_python_paths:
-  # Parent folder containing Header_ICM20948_I2C_pcb2.py, epicpower_tmotorV3/, etc.
+  # `epicpower_tmotorV3` is vendored in hip-exo-ctrl-V2; list only folder(s) with IMU Python headers:
   - "/path/to/V2_Hip_Exo-main/State2Torque 2 Controllers"
 
 teleplot_ip: "127.0.0.1"
