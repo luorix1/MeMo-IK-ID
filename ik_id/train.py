@@ -245,6 +245,9 @@ def main() -> None:
                             "full",
                             "lower_limb",
                             "sagittal",
+                            "sagittal_hip_knee",
+                            "sagittal_hip_ankle",
+                            "sagittal_knee_ankle",
                             "sagittal_hip_flexion",
                             "sagittal_knee",
                             "sagittal_ankle",
@@ -254,6 +257,8 @@ def main() -> None:
                             "full=all 23 DOFs (46 ch), "
                             "lower_limb=hip+knee+ankle R/L (10 DOFs, 20 ch), "
                             "sagittal=hip_flex+knee+ankle R/L (6 DOFs, 12 ch), "
+                            "sagittal_hip_knee / sagittal_hip_ankle / sagittal_knee_ankle = matching sagittal pair R+L "
+                            "(4 DOFs, 8 ch pos+vel), "
                             "sagittal_hip_flexion / sagittal_knee / sagittal_ankle = that sagittal angle only R+L "
                             "(2 DOFs, 4 ch pos+vel; pair with matching --output-mode)"
                         ))
@@ -263,6 +268,8 @@ def main() -> None:
                             "lower_limb",
                             "hip_knee",
                             "sagittal_hip_knee",
+                            "sagittal_hip_ankle",
+                            "sagittal_knee_ankle",
                             "sagittal_hip_knee_ankle",
                             "sagittal_hip_flexion",
                             "sagittal_knee",
@@ -274,6 +281,8 @@ def main() -> None:
                             "lower_limb=hip+knee+ankle R/L (10), "
                             "hip_knee=hip+knee R/L (8), "
                             "sagittal_hip_knee=hip_flex+knee R/L (4), "
+                            "sagittal_hip_ankle=hip_flex+ankle R/L (4), "
+                            "sagittal_knee_ankle=knee+ankle R/L (4), "
                             "sagittal_hip_knee_ankle=hip_flex+knee+ankle R/L (6), "
                             "sagittal_hip_flexion / sagittal_knee / sagittal_ankle = matching joint moment R+L (2)"
                         ))
@@ -316,11 +325,18 @@ def main() -> None:
     parser.add_argument("--wandb-run-name", type=str, default=None)
     args = parser.parse_args()
 
-    _joint_sagittal_modes = frozenset({"sagittal_hip_flexion", "sagittal_knee", "sagittal_ankle"})
+    _joint_sagittal_modes = frozenset({
+        "sagittal_hip_knee",
+        "sagittal_hip_ankle",
+        "sagittal_knee_ankle",
+        "sagittal_hip_flexion",
+        "sagittal_knee",
+        "sagittal_ankle",
+    })
     if args.input_mode in _joint_sagittal_modes or args.output_mode in _joint_sagittal_modes:
         if args.input_mode != args.output_mode:
             raise ValueError(
-                "For sagittal_hip_flexion / sagittal_knee / sagittal_ankle, --input-mode and "
+                "For sagittal pair/single-joint modes (hip_knee, hip_ankle, knee_ankle, hip_flexion, knee, ankle), --input-mode and "
                 f"--output-mode must be the same (got {args.input_mode!r} vs {args.output_mode!r})."
             )
 

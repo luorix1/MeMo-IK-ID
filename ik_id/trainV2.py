@@ -420,9 +420,11 @@ def main() -> None:
     )
     parser.add_argument("--input-mode", type=str, default="lower_limb",
                         choices=["full", "lower_limb", "sagittal", "sagittal_hip_flexion",
-                                 "sagittal_knee", "sagittal_ankle"])
+                                 "sagittal_knee", "sagittal_ankle", "sagittal_hip_knee",
+                                 "sagittal_hip_ankle", "sagittal_knee_ankle"])
     parser.add_argument("--output-mode", type=str, default="sagittal_hip_knee_ankle",
                         choices=["all", "lower_limb", "hip_knee", "sagittal_hip_knee",
+                                 "sagittal_hip_ankle", "sagittal_knee_ankle",
                                  "sagittal_hip_knee_ankle", "sagittal_hip_flexion",
                                  "sagittal_knee", "sagittal_ankle"])
     parser.add_argument("--laterality", type=str, default="unilateral",
@@ -501,11 +503,18 @@ def main() -> None:
     args.rollout_decimate_step = 2 if args.rollout else 1
 
     # Validate joint-specific sagittal mode pairing.
-    _joint_sagittal_modes = frozenset({"sagittal_hip_flexion", "sagittal_knee", "sagittal_ankle"})
+    _joint_sagittal_modes = frozenset({
+        "sagittal_hip_knee",
+        "sagittal_hip_ankle",
+        "sagittal_knee_ankle",
+        "sagittal_hip_flexion",
+        "sagittal_knee",
+        "sagittal_ankle",
+    })
     if args.input_mode in _joint_sagittal_modes or args.output_mode in _joint_sagittal_modes:
         if args.input_mode != args.output_mode:
             raise ValueError(
-                "For sagittal_hip_flexion / sagittal_knee / sagittal_ankle, "
+                "For sagittal pair/single-joint modes (hip_knee, hip_ankle, knee_ankle, hip_flexion, knee, ankle), "
                 f"--input-mode and --output-mode must match "
                 f"(got {args.input_mode!r} vs {args.output_mode!r})."
             )

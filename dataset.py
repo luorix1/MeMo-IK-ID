@@ -276,6 +276,20 @@ SAGITTAL_HIP_KNEE_MOMENT_INDICES = [
     13,  # knee_angle_l
 ]
 
+SAGITTAL_HIP_ANKLE_MOMENT_INDICES = [
+    3,   # hip_flexion_r
+    14,  # ankle_angle_r
+    6,   # hip_flexion_l
+    15,  # ankle_angle_l
+]
+
+SAGITTAL_KNEE_ANKLE_MOMENT_INDICES = [
+    12,  # knee_angle_r
+    14,  # ankle_angle_r
+    13,  # knee_angle_l
+    15,  # ankle_angle_l
+]
+
 SAGITTAL_HIP_KNEE_ANKLE_MOMENT_INDICES = [
     3,   # hip_flexion_r
     12,  # knee_angle_r
@@ -304,6 +318,27 @@ SAGITTAL_INPUT_INDICES = [
     17,  # ankle_angle_l
 ]
 
+SAGITTAL_HIP_KNEE_INPUT_INDICES = [
+    6,   # hip_flexion_r
+    9,   # knee_angle_r
+    13,  # hip_flexion_l
+    16,  # knee_angle_l
+]
+
+SAGITTAL_HIP_ANKLE_INPUT_INDICES = [
+    6,   # hip_flexion_r
+    10,  # ankle_angle_r
+    13,  # hip_flexion_l
+    17,  # ankle_angle_l
+]
+
+SAGITTAL_KNEE_ANKLE_INPUT_INDICES = [
+    9,   # knee_angle_r
+    10,  # ankle_angle_r
+    16,  # knee_angle_l
+    17,  # ankle_angle_l
+]
+
 # Single sagittal DOF type × R/L (paired with ``laterality=unilateral`` → ipsilateral 1→1 windows).
 SAGITTAL_HIP_FLEXION_INPUT_INDICES = [6, 13] # hip_flexion_r, hip_flexion_l
 SAGITTAL_KNEE_INPUT_INDICES = [9, 16]  # knee_angle_r, knee_angle_l
@@ -318,6 +353,9 @@ INPUT_MODE_INDICES = {
     "full": None,
     "lower_limb": LOWER_LIMB_INPUT_INDICES,
     "sagittal": SAGITTAL_INPUT_INDICES,
+    "sagittal_hip_knee": SAGITTAL_HIP_KNEE_INPUT_INDICES,
+    "sagittal_hip_ankle": SAGITTAL_HIP_ANKLE_INPUT_INDICES,
+    "sagittal_knee_ankle": SAGITTAL_KNEE_ANKLE_INPUT_INDICES,
     "sagittal_hip_flexion": SAGITTAL_HIP_FLEXION_INPUT_INDICES,
     "sagittal_knee": SAGITTAL_KNEE_INPUT_INDICES,
     "sagittal_ankle": SAGITTAL_ANKLE_INPUT_INDICES,
@@ -328,6 +366,8 @@ OUTPUT_MODE_INDICES = {
     "lower_limb": LOWER_LIMB_MOMENT_INDICES,
     "hip_knee": HIP_KNEE_MOMENT_INDICES,
     "sagittal_hip_knee": SAGITTAL_HIP_KNEE_MOMENT_INDICES,
+    "sagittal_hip_ankle": SAGITTAL_HIP_ANKLE_MOMENT_INDICES,
+    "sagittal_knee_ankle": SAGITTAL_KNEE_ANKLE_MOMENT_INDICES,
     "sagittal_hip_knee_ankle": SAGITTAL_HIP_KNEE_ANKLE_MOMENT_INDICES,
     "sagittal_hip_flexion": SAGITTAL_HIP_FLEXION_MOMENT_INDICES,
     "sagittal_knee": SAGITTAL_KNEE_MOMENT_INDICES,
