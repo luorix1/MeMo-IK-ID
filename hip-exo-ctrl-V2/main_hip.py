@@ -982,9 +982,6 @@ class DualHipRunner:
                 cmd_L = 0.0
                 cmd_R = 0.0
 
-            cmd_L *= float(self.cfg["scale"])
-            cmd_R *= float(self.cfg["scale"])
-
             lim = float(self.cfg["torque_limit"])
             cmd_L = clamp(cmd_L, -lim, lim)
             cmd_R = clamp(cmd_R, -lim, lim)
