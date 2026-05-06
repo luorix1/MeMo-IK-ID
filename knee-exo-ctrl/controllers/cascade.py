@@ -78,9 +78,17 @@ class CascadeUni(BaseController):
         self.knee_vel_mean   = float(config.get("knee_vel_mean", 0.0))
         self.knee_vel_std    = float(config.get("knee_vel_std", 1.0))
 
-        # Causal LPF applied directly in inference path (inputs + model output).
-        self.infer_lpf_hz = float(config.get("infer_lpf_hz", 4.0))
-        self.infer_lpf_order = int(config.get("infer_lpf_order", 4))
+        # Per-signal inference-path LPF settings.
+        # Each signal reads its own key; falls back to infer_lpf_hz / infer_lpf_order if absent.
+        _lpf_hz_default    = float(config.get("infer_lpf_hz",    4.0))
+        _lpf_order_default = int(config.get("infer_lpf_order",   4))
+
+        _angle_lpf_hz    = float(config.get("angle_lpf_hz",    _lpf_hz_default))
+        _angle_lpf_order = int(config.get("angle_lpf_order",   _lpf_order_default))
+        _vel_lpf_hz      = float(config.get("vel_lpf_hz",      _lpf_hz_default))
+        _vel_lpf_order   = int(config.get("vel_lpf_order",     _lpf_order_default))
+        _out_lpf_hz      = float(config.get("out_lpf_hz",      _lpf_hz_default))
+        _out_lpf_order   = int(config.get("out_lpf_order",     _lpf_order_default))
 
         # Model outputs Nm/kg (moments stored as N*m/kg in training dataset).
         # Multiply by subject mass to recover Nm, then by torque_scale for tuning.
@@ -113,10 +121,10 @@ class CascadeUni(BaseController):
         )
         self.worker.daemon = True
 
-        # Inference-path causal low-pass filters
-        self.infer_angle_lpf = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
-        self.infer_vel_lpf = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
-        self.infer_out_lpf = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
+        # Inference-path causal low-pass filters (each signal independently configured)
+        self.infer_angle_lpf = _CausalLowPass(self.fs, _angle_lpf_hz, _angle_lpf_order)
+        self.infer_vel_lpf   = _CausalLowPass(self.fs, _vel_lpf_hz,   _vel_lpf_order)
+        self.infer_out_lpf   = _CausalLowPass(self.fs, _out_lpf_hz,   _out_lpf_order)
 
         # filtered states
         self.knee_angle_filt   = 0.0   # encoder angle (rad)

@@ -183,14 +183,24 @@ class CascadeHip(BaseController):
         )
         self.worker.daemon = True
 
-        self.infer_lpf_hz = float(config.get("infer_lpf_hz", 4.0))
-        self.infer_lpf_order = int(config.get("infer_lpf_order", 4))
-        self.infer_angle_lpf_r = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
-        self.infer_angle_lpf_l = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
-        self.infer_vel_lpf_r = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
-        self.infer_vel_lpf_l = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
-        self.infer_out_lpf_r = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
-        self.infer_out_lpf_l = _CausalLowPass(self.fs, self.infer_lpf_hz, self.infer_lpf_order)
+        # Per-signal inference-path LPF settings.
+        # Each signal reads its own key; falls back to infer_lpf_hz / infer_lpf_order if absent.
+        _lpf_hz_default    = float(config.get("infer_lpf_hz",    4.0))
+        _lpf_order_default = int(config.get("infer_lpf_order",   4))
+
+        _angle_lpf_hz    = float(config.get("angle_lpf_hz",    _lpf_hz_default))
+        _angle_lpf_order = int(config.get("angle_lpf_order",   _lpf_order_default))
+        _vel_lpf_hz      = float(config.get("vel_lpf_hz",      _lpf_hz_default))
+        _vel_lpf_order   = int(config.get("vel_lpf_order",     _lpf_order_default))
+        _out_lpf_hz      = float(config.get("out_lpf_hz",      _lpf_hz_default))
+        _out_lpf_order   = int(config.get("out_lpf_order",     _lpf_order_default))
+
+        self.infer_angle_lpf_r = _CausalLowPass(self.fs, _angle_lpf_hz, _angle_lpf_order)
+        self.infer_angle_lpf_l = _CausalLowPass(self.fs, _angle_lpf_hz, _angle_lpf_order)
+        self.infer_vel_lpf_r   = _CausalLowPass(self.fs, _vel_lpf_hz,   _vel_lpf_order)
+        self.infer_vel_lpf_l   = _CausalLowPass(self.fs, _vel_lpf_hz,   _vel_lpf_order)
+        self.infer_out_lpf_r   = _CausalLowPass(self.fs, _out_lpf_hz,   _out_lpf_order)
+        self.infer_out_lpf_l   = _CausalLowPass(self.fs, _out_lpf_hz,   _out_lpf_order)
 
         self.hip_angle_filt_r = 0.0
         self.hip_vel_filt_r = 0.0

@@ -54,8 +54,10 @@ class State2Torque(BaseController):
         self.current_input_std = std
         self.num_input_features = int(mean.shape[0])
 
-        self._lpf_R = LowpassFilter(order=2, cutoff=10.0, fs=float(self.fs))
-        self._lpf_L = LowpassFilter(order=2, cutoff=10.0, fs=float(self.fs))
+        _out_lpf_cutoff = float(config.get("out_lpf_hz",   config.get("infer_lpf_hz",  10.0)))
+        _out_lpf_order  = int(config.get("out_lpf_order", config.get("infer_lpf_order", 2)))
+        self._lpf_R = LowpassFilter(order=_out_lpf_order, cutoff=_out_lpf_cutoff, fs=float(self.fs))
+        self._lpf_L = LowpassFilter(order=_out_lpf_order, cutoff=_out_lpf_cutoff, fs=float(self.fs))
         self._zi_R = None
         self._zi_L = None
 

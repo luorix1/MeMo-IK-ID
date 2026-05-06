@@ -36,8 +36,18 @@ torque_limit: 16.0   # hard clamp (Nm)
 # Output delay before torque LPF / rate limit (seconds). Same pattern as biotorque / hip cascade.
 delay: 0
 
-# LPF settings
-infer_lpf_hz: 6
+# ---- inference-path causal low-pass ----
+# Each signal (angle input, velocity input, torque output) has its own cutoff and order.
+# Remove a key to fall back to infer_lpf_hz / infer_lpf_order.
+angle_lpf_hz:    6     # LPF cutoff for joint angle fed to model (Hz)
+angle_lpf_order: 4
+vel_lpf_hz:      15    # LPF cutoff for joint angular velocity fed to model (Hz)
+vel_lpf_order:   4
+out_lpf_hz:      6     # LPF cutoff applied to raw model torque output (Hz)
+out_lpf_order:   4
+
+# Fallback shared settings (used if per-signal keys above are absent)
+infer_lpf_hz:    6
 infer_lpf_order: 4
 
 # ---- normalization stats from training checkpoint ----
