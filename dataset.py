@@ -390,9 +390,8 @@ def _subject_num(subject_id: str) -> int:
     return int(m.group()) if m else 0
 
 
-# FIXME: Remove this gate (and all call sites) after broken H5 / pipeline issues are fixed.
 def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
-    """Temporarily drop known-bad subject ID bands from all KineticsTCNDataset loading."""
+    """Remove known bad-quality datasets from AddBiomechanics during loading."""
     n = _subject_num(subject_id)
     # Falisse2017, Hamner2013, Moore2015, Tan2021
     if 386 <= n <= 426:

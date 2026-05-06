@@ -62,7 +62,7 @@ from ik_id.test import (
 )
 from ik_id.testV2 import _predict_full_trial_from_dataset, run_inference_streaming_v2
 
-DEFAULT_DATA_DIR = Path("/media/metamobility3/Samsung_T5/Processed/Addbiomech_final")
+DEFAULT_DATA_DIR = Path("/media/metamobility3/Samsung_T5/Processed/AddBiomechanics_final")
 DEFAULT_CHECKPOINT = _ROOT / "runs" / "0427_ik_id_all_addbiomech" / "best_model.pt"
 
 # Preferred repr. subject when that exact ``S*.h5`` exists (Jinwoo blocks only).
@@ -339,15 +339,22 @@ def resolve_repr_subject_ids(
             out.append((slice_label_for_subject(nv, slices), nv))
         return out, slice_debug
 
+    preferred_labels = ("Camargo", "Scherpereel", "Molinaro_Scherpereel")
+    ordered_labels: List[str] = []
+    for lab in preferred_labels:
+        if lab in slices:
+            ordered_labels.append(lab)
+    ordered_labels.extend(sorted(k for k in slices if k not in preferred_labels))
+
     order: List[str] = []
-    for lab in ("Camargo", "Scherpereel", "Molinaro_Scherpereel"):
-        if lab in slices and (slices[lab] & available):
-            order.append(lab)
-    for lab in sorted(
-        k for k in slices if k not in ("Camargo", "Scherpereel", "Molinaro_Scherpereel")
-    ):
+    skipped_no_subjects: List[str] = []
+    for lab in ordered_labels:
         if slices[lab] & available:
             order.append(lab)
+        else:
+            skipped_no_subjects.append(lab)
+    if skipped_no_subjects:
+        slice_debug["slices_skipped_no_available_subjects"] = skipped_no_subjects
 
     chosen: List[Tuple[str, str]] = []
     used_ids: Set[str] = set()
