@@ -11,15 +11,15 @@ class ICM20948_I2C_IMUs:
         # self.IMU_mux_ports = dict([(f"{i}",i) for i in range(0,4)])
         self.IMU_mux_ports = {    # Multiplexer port numbers with an IMU actually attached
             'IMU_PELVIS' : 2, # correct pairing as of 20250114
-            'IMU_THIGH_RIGHT' : 1, # correct pairing as of 20250114
-            'IMU_THIGH_LEFT' : 4, # correct pairing as of 20250114
+            'IMU_THIGH_RIGHT' : 4, # correct pairing as of 20250114
+            'IMU_THIGH_LEFT' : 1, # correct pairing as of 20250114
         }
         self.imu_readings = copy.deepcopy(self.IMU_mux_ports) # need same keys so just copy
 
         self.JETSON_I2C_BUS = 7         # I2C bus of Orin to which multiplexer is attached.
         self.IMU_ADDRESS = 0x69         # I2C/SMBus address of all IMUs on exoskeleton.
         self.IMU_ADDRESS_soldered = 0x68 # soldered: 0x68, unsoldered: 0x69
-        if self.IMU_ADDRESS == self.IMU_ADDRESS_soldered:   print("\n !!!!! Warning: Trunk IMU is used. Check if correct IMU address. !!!!!\n")
+        # if self.IMU_ADDRESS == self.IMU_ADDRESS_soldered:   print("\n !!!!! Warning: Trunk IMU is used. Check if correct IMU address. !!!!!\n")
         self.WHO_AM_I = 0x00            # I2C/SMBus address of WHO_AM_I register.
         self.YOU_ARE = 0xEA             # Value that should be stored in WHO_AM_I register.
         self.MULTIPLEXER_ADDRESS = 0x70 # I2C/SMBus address of multiplexer on exoskeleton.
@@ -45,12 +45,19 @@ class ICM20948_I2C_IMUs:
         self.wake_IMUs()
         self.set_gyro_full_scale()
         self.set_accel_full_scale()
+        if not self.IMUs_are_on:
+            dead = {name: port for name, port in self.IMU_mux_ports.items()
+                    if port not in self.active_ports}
+            raise RuntimeError(
+                f"IMU initialisation failed. The following IMUs could not be woken: {dead}. "
+                "Check I2C wiring and mux port assignments."
+            )
     
     # def __del__(self): # try to close the bus when done just in case
     #     self.i2cbus.close() # doesn't actually seem to do anything
 
     def get_imu_address(self, port):
-        return self.IMU_ADDRESS_soldered if port == self.IMU_mux_ports['IMU_PELVIS'] else self.IMU_ADDRESS
+        return self.IMU_ADDRESS
 
     def select_IMU(self, port):
         '''
@@ -128,11 +135,15 @@ class ICM20948_I2C_IMUs:
     def wake_IMUs(self):
         '''
         Check if IMUs are on. If not, turn them on.
+        Ports that fail to wake are removed from self.active_ports so that
+        subsequent configuration steps (set_gyro_full_scale, etc.) skip them
+        instead of crashing with a Remote I/O error.
         '''
         # so can check all of them even if one's dead
         self.IMUs_are_on = None
+        self.active_ports = set(self.IMU_mux_ports.values())
 
-        for port in self.IMU_mux_ports.values():
+        for name, port in self.IMU_mux_ports.items():
             print("Checking connection to IMU at mux port", port)
             
             if not self.check_IMU_awake(port):
@@ -143,10 +154,13 @@ class ICM20948_I2C_IMUs:
                     print(f"Sending wake signal to IMU at {port} failed")
                     traceback.print_tb(imu_except.__traceback__)
                     self.IMUs_are_on = False
+                    self.active_ports.discard(port)
+                    continue
             
             if not self.check_IMU_awake(port):
                 print('Failed to wake IMU')
                 self.IMUs_are_on = False
+                self.active_ports.discard(port)
 
         if self.IMUs_are_on is None:
             self.IMUs_are_on = True
@@ -199,6 +213,8 @@ class ICM20948_I2C_IMUs:
 
     def set_gyro_full_scale(self):
         for port in self.IMU_mux_ports.values():
+            if port not in self.active_ports:
+                continue
             self.write_thru_mux(port, self.BANK_SEL, self.BANK_2)
             current_value = self.read_thru_mux(port, self.GYRO_CONFIG_1)
             new_value = (current_value & 0b11111001) | (self.GYRO_FS_MODE << 1)
@@ -208,6 +224,8 @@ class ICM20948_I2C_IMUs:
 
     def set_accel_full_scale(self):
         for port in self.IMU_mux_ports.values():
+            if port not in self.active_ports:
+                continue
             self.write_thru_mux(port, self.BANK_SEL, self.BANK_2)
             current_value = self.read_thru_mux(port, self.ACCEL_CONFIG)
             new_value = (current_value & 0b11111001) | (self.ACCEL_FS_MODE << 1)
