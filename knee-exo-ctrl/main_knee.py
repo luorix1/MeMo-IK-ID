@@ -317,9 +317,6 @@ class DualKneeRunner:
             if not self.cfg["exo_on"]:
                 cmd_L = 0.0
                 cmd_R = 0.0
-            
-            cmd_L = cmd_L*self.cfg["scale"]
-            cmd_R = cmd_R*self.cfg["scale"]
 
             cmd_L = clamp(cmd_L, -self.cfg["torque_limit"], self.cfg["torque_limit"])
             cmd_R = clamp(cmd_R, -self.cfg["torque_limit"], self.cfg["torque_limit"])
