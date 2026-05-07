@@ -25,6 +25,7 @@ Examples:
 """
 
 import argparse
+import inspect
 import os
 import sys
 
@@ -75,6 +76,12 @@ def load_yaml(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def _tcn_ctor_kwargs(cfg: dict) -> dict:
+    """Drop checkpoint-only keys (e.g. ``model_type``) before ``TCN(**kwargs)``."""
+    allowed = {k for k in inspect.signature(TCN.__init__).parameters if k != "self"}
+    return {k: v for k, v in cfg.items() if k in allowed}
+
+
 def load_checkpoint(pt_path: str) -> dict:
     """Load checkpoint regardless of whether numpy globals are embedded."""
     return torch.load(pt_path, map_location="cpu", weights_only=False)
@@ -107,6 +114,13 @@ def pt_to_trt(
     model_config = ckpt["model_config"]
     print(f"[INFO] model_config from checkpoint: {model_config}")
 
+    mt = model_config.get("model_type", "tcn")
+    if mt != "tcn":
+        raise ValueError(
+            f"This script only converts TCN checkpoints; got model_type={mt!r}. "
+            "Use a checkpoint trained with --model-type tcn."
+        )
+
     # window_size: prefer checkpoint value, allow CLI override
     ckpt_window = ckpt.get("window_size", None)
     if ckpt_window is not None and ckpt_window != window_size:
@@ -123,7 +137,8 @@ def pt_to_trt(
     # ------------------------------------------------------------------
     # 2. Build model and load weights
     # ------------------------------------------------------------------
-    tcn = TCN(**model_config).eval()
+    tcn_kw = _tcn_ctor_kwargs(model_config)
+    tcn = TCN(**tcn_kw).eval()
     tcn.load_state_dict(ckpt["model_state_dict"])
     model = _TCNLastStep(tcn).eval().cuda()
     print(f"[INFO] Model built — parameters: {sum(p.numel() for p in tcn.parameters()):,}")
