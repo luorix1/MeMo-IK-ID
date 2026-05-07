@@ -11,19 +11,19 @@
 
 trial_name: "cascade_0425"
 exo_on: true
-trigger_type: "mocap"
+trigger_type: "typing"
 
 # "right" or "left" — only this side sends torque; the other side gets 0
 side: "right"
 
 controller_name: "cascade_uni"
-trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/cascade.trt"
+trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/knee_0506.trt"
 
 frame_length: 100
 input_size: 2
 output_size: 1
 fs: 100
-exp_time_sec: 80
+exp_time_sec: 360
 
 # ---- output scaling ----
 # Training moments are stored as Nm/kg (body-mass normalized).
