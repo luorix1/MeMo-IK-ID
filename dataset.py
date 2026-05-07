@@ -125,14 +125,50 @@ UNILATERAL_FLIP_MOMENT_INDICES = (
 # Correct sign conventions in source data / preprocessing, then remove this map and callers.
 # Cohort keys match labels from ``discover_dataset_slices_from_dir`` (manifests next to H5 root).
 _ADDBIOMECH_TEMP_IK_ANGLE_FLIP_BY_COHORT: Dict[str, frozenset] = {
-    "Camargo": frozenset({"ankle_angle_l"}),
-    "Moore2015_No_Arm": frozenset(
-        {"ankle_angle_l", "ankle_angle_r", "knee_angle_l", "knee_angle_r"}
-    ),
-    "Falisse2017": frozenset({"knee_angle_l", "knee_angle_r", "ankle_angle_l", "ankle_angle_r"}),
-    "Hamner2013": frozenset({"knee_angle_l", "knee_angle_r"}),
-    "Uhlrich2023_No_Arm": frozenset({"hip_flexion_l", "hip_flexion_r", "knee_angle_l", "knee_angle_r"}),
+    "Ulrich2023_No_Arm": frozenset({"ankle_angle_l", "ankle_angle_r"}),
+    "Moore2015_No_Arm": frozenset({"knee_angle_l", "knee_angle_r", "ankle_angle_l", "ankle_angle_r"}),
 }
+
+# FIXME: Temporary ID moment sign fixes for known AddBiomechanics cohort export issues.
+# Keys/labels match ``discover_dataset_slices_from_dir`` cohorts.
+# Values are names from ``MOMENT_NAMES`` to negate at load time.
+_ADDBIOMECH_TEMP_MOMENT_FLIP_BY_COHORT: Dict[str, frozenset] = {
+    "Camargo": frozenset({"knee_angle_r", "knee_angle_l"}),
+    "Scherpereel": frozenset({"knee_angle_r", "knee_angle_l"}),
+    "Molinaro_Scherpereel": frozenset({"knee_angle_r", "knee_angle_l"}),
+    "Uhlrich2023_No_Arm": frozenset(
+        {"hip_flexion_r", "hip_flexion_l", "knee_angle_r", "knee_angle_l"}
+    ),
+    "Tan2022_No_Arm": frozenset({"hip_flexion_r", "hip_flexion_l"}),
+    "Carter2023_No_Arm": frozenset({"hip_flexion_r", "hip_flexion_l"}),
+}
+
+
+def _resolve_addbiomech_cohort(
+    subject_id: str,
+    manifest_root: Optional[Union[str, Path]],
+) -> Optional[str]:
+    """Return AddBiomechanics cohort label for subject ID, or None if unavailable."""
+    if manifest_root is None:
+        return None
+    root = Path(manifest_root)
+    if not root.is_dir():
+        return None
+    try:
+        from ik_id.test_addbiomech_repr_subjects import (
+            discover_dataset_slices_from_dir,
+            slice_label_for_subject,
+        )
+    except ImportError:
+        return None
+    try:
+        slices, _ = discover_dataset_slices_from_dir(root)
+        cohort = slice_label_for_subject(subject_id, slices)
+    except Exception:
+        return None
+    if cohort in ("unmapped", "invalid_id"):
+        return None
+    return cohort
 
 
 def _apply_temp_addbiomech_ik_angle_sign_fix(
@@ -141,24 +177,8 @@ def _apply_temp_addbiomech_ik_angle_sign_fix(
     manifest_root: Optional[Union[str, Path]],
 ) -> np.ndarray:
     """FIXME: Temporary — negate selected IK columns (rad) by cohort; remove when upstream is fixed."""
-    if manifest_root is None:
-        return pos_rad
-    root = Path(manifest_root)
-    if not root.is_dir():
-        return pos_rad
-    try:
-        from ik_id.test_addbiomech_repr_subjects import (
-            discover_dataset_slices_from_dir,
-            slice_label_for_subject,
-        )
-    except ImportError:
-        return pos_rad
-    try:
-        slices, _ = discover_dataset_slices_from_dir(root)
-        cohort = slice_label_for_subject(subject_id, slices)
-    except Exception:
-        return pos_rad
-    if cohort in ("unmapped", "invalid_id"):
+    cohort = _resolve_addbiomech_cohort(subject_id, manifest_root)
+    if not cohort:
         return pos_rad
     dofs = _ADDBIOMECH_TEMP_IK_ANGLE_FLIP_BY_COHORT.get(cohort)
     if not dofs:
@@ -167,6 +187,29 @@ def _apply_temp_addbiomech_ik_angle_sign_fix(
     for name in dofs:
         if name in IK_DOF_NAMES:
             j = IK_DOF_NAMES.index(name)
+            out[:, j] *= -1.0
+    return out
+
+
+def _apply_temp_addbiomech_moment_sign_fix(
+    subject_id: str,
+    moments: np.ndarray,
+    manifest_root: Optional[Union[str, Path]],
+) -> np.ndarray:
+    """
+    FIXME: Temporary — negate selected ID moment columns by cohort.
+    Remove once upstream exports have consistent signs.
+    """
+    cohort = _resolve_addbiomech_cohort(subject_id, manifest_root)
+    if not cohort:
+        return moments
+    dofs = _ADDBIOMECH_TEMP_MOMENT_FLIP_BY_COHORT.get(cohort)
+    if not dofs:
+        return moments
+    out = np.asarray(moments, dtype=np.float64, copy=True)
+    for name in dofs:
+        if name in MOMENT_NAMES:
+            j = MOMENT_NAMES.index(name)
             out[:, j] *= -1.0
     return out
 
@@ -433,11 +476,11 @@ def _subject_num(subject_id: str) -> int:
 def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
     """Remove known bad-quality datasets from AddBiomechanics during loading."""
     n = _subject_num(subject_id)
-    # Falisse2017, Hamner2013, Moore2015, Tan2021
+    # Falisse2017, Moore2015, Tan2021, Hamner2013
     if 386 <= n <= 426:
         return True
-    # Tiziana2019
-    if 444 <= n <= 493:
+    # Tiziana2019, Ulrich2023
+    if 444 <= n <= 503:
         return True
     # vanderZee2022
     if 513 <= n <= 522:
@@ -1283,6 +1326,8 @@ def load_trial_from_processed(
             # Windowing will drop windows where selected output channels are non-finite.
             pass
 
+    moments = _apply_temp_addbiomech_moment_sign_fix(subj_id, moments, Path(root_dir))
+
     if rollout_decimate_step > 1:
         time, pos, moments = decimate_trial_aligned(
             time, pos, moments, int(rollout_decimate_step)
@@ -1965,6 +2010,8 @@ class KineticsTCNDataset(Dataset):
                 # If a moment channel is missing entirely, leave NaNs.
                 # Windowing will drop windows where selected output channels are non-finite.
                 pass
+
+        moments = _apply_temp_addbiomech_moment_sign_fix(subj_id, moments, _manifest)
 
         if self.rollout_decimate_step > 1:
             time, pos, moments = decimate_trial_aligned(

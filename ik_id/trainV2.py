@@ -355,7 +355,7 @@ def main() -> None:
     )
 
     # ---- Preprocessing / LPF ----
-    parser.add_argument("--lowpass-cutoff-hz", type=float, default=4.0)
+    parser.add_argument("--lowpass-cutoff-hz", type=float, default=6.0)
     parser.add_argument("--lowpass-order", type=int, default=4)
     parser.add_argument(
         "--rollout",

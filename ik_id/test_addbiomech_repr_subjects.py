@@ -86,6 +86,32 @@ SKIP_JSON_NAMES = frozenset(
 )
 
 
+def _subject_num(subject_id: str) -> int:
+    m = re.search(r"\d+", subject_id)
+    return int(m.group()) if m else 0
+
+
+def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
+    """
+    Keep aligned with dataset._subject_id_excluded_temp_broken_h5 so representative
+    selection never picks subjects that KineticsTCNDataset will intentionally skip.
+    """
+    n = _subject_num(subject_id)
+    # Falisse2017
+    if 386 <= n <= 396:
+        return True
+    # Moore2015, Tan2021
+    if 407 <= n <= 426:
+        return True
+    # Tiziana2019
+    if 444 <= n <= 493:
+        return True
+    # vanderZee2022
+    if 513 <= n <= 522:
+        return True
+    return False
+
+
 def _sid_set(lo: int, hi: int) -> Set[str]:
     return {f"S{i:03d}" for i in range(lo, hi + 1)}
 
@@ -314,11 +340,22 @@ def resolve_repr_subject_ids(
     Molinaro) plus one per slice discovered from ``subject_id_map_*.json`` and other
     manifests under ``data_root`` (see ``discover_dataset_slices_from_dir``).
     """
-    available = set(list_h5_subjects_under_root(data_root))
-    if not available:
+    available_all = set(list_h5_subjects_under_root(data_root))
+    if not available_all:
         raise FileNotFoundError(f"No S*.h5 files found under {data_root}")
+    excluded = {sid for sid in available_all if _subject_id_excluded_temp_broken_h5(sid)}
+    available = available_all - excluded
+    if not available:
+        raise RuntimeError(
+            "All discovered S*.h5 subjects are currently excluded by dataset-side "
+            f"filters in KineticsTCNDataset. Excluded: {sorted(excluded, key=_subject_sort_key)}"
+        )
 
     slices, slice_debug = discover_dataset_slices_from_dir(data_root)
+    if excluded:
+        slice_debug["h5_subjects_excluded_by_dataset_loader"] = sorted(
+            excluded, key=_subject_sort_key
+        )
 
     covered: Set[str] = set()
     for s in slices.values():
@@ -332,6 +369,10 @@ def resolve_repr_subject_ids(
         for raw in explicit:
             sid = raw.strip().upper()
             nv = _norm_subject_id(sid)
+            if nv and nv in excluded:
+                raise ValueError(
+                    f"Requested subject {sid!r} is excluded by dataset loader filters."
+                )
             if not nv or nv not in available:
                 raise FileNotFoundError(
                     f"Requested subject {sid!r} not found under {data_root}"
@@ -627,7 +668,13 @@ def main() -> None:
         if test_ds_kwargs.get("rollout_decimate_step", 1) > 1:
             print(f"  rollout_decimate_step: {test_ds_kwargs['rollout_decimate_step']}")
 
-        test_ds = KineticsTCNDataset(**test_ds_kwargs)
+        try:
+            test_ds = KineticsTCNDataset(**test_ds_kwargs)
+        except ValueError as e:
+            if "No valid trials found" in str(e):
+                print("  [skip] No valid trials found after dataset filters.")
+                continue
+            raise
         print(f"  Windows: {len(test_ds):,}")
         if len(test_ds) == 0:
             print("  [skip] No windows for this subject (filters / missing trials).")
