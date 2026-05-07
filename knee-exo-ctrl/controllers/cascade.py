@@ -93,7 +93,7 @@ class CascadeUni(BaseController):
         # Model outputs Nm/kg (moments stored as N*m/kg in training dataset).
         # Multiply by subject mass to recover Nm, then by torque_scale for tuning.
         self.mass         = float(config["mass"])
-        self.torque_scale = float(config.get("torque_scale", 1.0))
+        self.torque_scale = float(config.get("scale", 1.0))
         self.torque_limit = float(config.get("torque_limit", 20.0))
 
         self.input_size  = int(config.get("input_size",  2))
