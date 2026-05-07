@@ -17,7 +17,7 @@ trigger_type: "typing"
 side: "both"
 
 controller_name: "cascade_hip"
-trt_engine_path: "../best_model_0504.trt"
+trt_engine_path: "../best_model_0507.trt"
 
 frame_length: 100
 input_size: 2
