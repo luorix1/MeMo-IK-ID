@@ -9,7 +9,7 @@
 # Model output : (1, 1) → knee joint moment (Nm), applied directly as torque
 # ---------------------------------------------------------------
 
-trial_name: "cascade_0425"
+trial_name: "knee_0507"
 exo_on: true
 trigger_type: "typing"
 
@@ -17,7 +17,7 @@ trigger_type: "typing"
 side: "right"
 
 controller_name: "cascade_uni"
-trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/knee_0506.trt"
+trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/knee_0507.trt"
 
 frame_length: 100
 input_size: 2
