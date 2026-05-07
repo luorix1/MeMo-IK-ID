@@ -69,6 +69,7 @@ def build_data_log(cfg: dict) -> dict:
         "model_in_knee_angle_norm": np.zeros(log_size),
         "model_in_knee_vel_norm": np.zeros(log_size),
         "model_out_nmpkg": np.zeros(log_size),
+        "model_out_nmpkg_raw": np.zeros(log_size),
         "moment_raw": np.zeros(log_size),
         "K_r": np.zeros(log_size),
         "Soft_ctrl_r": np.zeros(log_size),
@@ -418,6 +419,7 @@ class DualKneeRunner:
                 self.data_log["model_in_knee_angle_norm"][self.current_idx] = r.extra.get("model_in_knee_angle_norm", 0.0)
                 self.data_log["model_in_knee_vel_norm"][self.current_idx] = r.extra.get("model_in_knee_vel_norm", 0.0)
                 self.data_log["model_out_nmpkg"][self.current_idx] = r.extra.get("model_out_nmpkg", 0.0)
+                self.data_log["model_out_nmpkg_raw"][self.current_idx] = r.extra.get("model_out_nmpkg_raw", 0.0)
                 self.data_log["moment_raw"][self.current_idx] = r.extra.get("moment_raw", 0.0)
                 self.data_log["K_r"][self.current_idx] = r.extra.get("K_r", 0.0)
                 self.data_log["Soft_ctrl_r"][self.current_idx] = r.extra.get("Soft_ctrl_r", 0.0)
