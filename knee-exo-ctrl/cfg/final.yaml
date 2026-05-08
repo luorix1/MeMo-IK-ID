@@ -9,21 +9,21 @@
 # Model output : (1, 1) → knee joint moment (Nm), applied directly as torque
 # ---------------------------------------------------------------
 
-trial_name: "knee_0507"
+trial_name: "ab01_jinwoo_knee_0p8mps_rd_exo_on"
 exo_on: true
-trigger_type: "typing"
+trigger_type: "mocap"
 
 # "right" or "left" — only this side sends torque; the other side gets 0
 side: "right"
 
 controller_name: "cascade_uni"
-trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/knee_0507.trt"
+trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/knee_0507_final.trt"
 
 frame_length: 100
 input_size: 2
 output_size: 1
 fs: 100
-exp_time_sec: 360
+exp_time_sec: 80
 
 # ---- output scaling ----
 # Training moments are stored as Nm/kg (body-mass normalized).

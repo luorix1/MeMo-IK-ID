@@ -9,9 +9,9 @@
 # Model output : (1, 1) → knee joint moment (Nm), applied directly as torque
 # ---------------------------------------------------------------
 
-trial_name: "cascade_0425"
+trial_name: "ab01_jinwoo_knee_0p8mps_ra_exo_on"
 exo_on: true
-trigger_type: "typing"
+trigger_type: "mocap"
 
 # "right" or "left" — only this side sends torque; the other side gets 0
 side: "right"
