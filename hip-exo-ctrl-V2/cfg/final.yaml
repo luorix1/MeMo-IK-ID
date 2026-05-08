@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------
+  # ---------------------------------------------------------------
 # Bilateral Hip Cascade Controller — Config
 # Controller : cascade_hip
 # Model      : os_kinetics TCN (sagittal_hip, bilateral)
@@ -9,7 +9,7 @@
 # Model output : (2, 1) → Nm/kg per side; left output sign-flipped before applying
 # ---------------------------------------------------------------
 
-trial_name: "cascade_0504"
+trial_name: "ab01_jinwoo_hip_1p6mps_lg_exo_on"
 exo_on: true
 trigger_type: "mocap"
 
