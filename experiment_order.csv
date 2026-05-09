@@ -1,9 +1,9 @@
 subject_id,block1_main,block1_sub_order,block2_main,block2_sub_order,block3_main,block3_sub_order
-1,Knee exo,RA|RD,Hip exo,LG|RA,No exo (Awinda),RA|RD|LG
-2,No exo (Awinda),LG|RA|RD,Knee exo,RA|RD,Hip exo,RA|LG
-3,Hip exo,RA|LG,No exo (Awinda),LG|RA|RD,Knee exo,RD|RA
-4,No exo (Awinda),RA|LG|RD,Knee exo,RA|RD,Hip exo,LG|RA
-5,No exo (Awinda),LG|RD|RA,Knee exo,RA|RD,Hip exo,RA|LG
-6,No exo (Awinda),RA|RD|LG,Knee exo,RD|RA,Hip exo,LG|RA
-7,No exo (Awinda),RA|LG|RD,Hip exo,LG|RA,Knee exo,RD|RA
-8,Hip exo,LG|RA,Knee exo,RA|RD,No exo (Awinda),RA|LG|RD
+1,Knee exo,RA|RD,Hip exo,RA|LG,No exo (Awinda),LG|RA|RD
+2,Hip exo,LG|RA,Knee exo,RA|RD,No exo (Awinda),RD|RA|LG
+3,Knee exo,RA|RD,No exo (Awinda),RA|RD|LG,Hip exo,LG|RA
+4,Knee exo,RD|RA,Hip exo,RA|LG,No exo (Awinda),LG|RD|RA
+5,Knee exo,RA|RD,No exo (Awinda),RA|RD|LG,Hip exo,LG|RA
+6,Knee exo,RA|RD,No exo (Awinda),RA|RD|LG,Hip exo,LG|RA
+7,Knee exo,RD|RA,Hip exo,RA|LG,No exo (Awinda),LG|RD|RA
+8,No exo (Awinda),LG|RD|RA,Knee exo,RA|RD,Hip exo,RA|LG

@@ -4,7 +4,9 @@ Generate per-subject randomized experiment schedules.
 
 For each subject:
 1. Shuffle the order of main conditions (hip exo, knee exo, no exo / Awinda).
-2. Within each main block, shuffle that block's sub-conditions.
+2. Pick sub-condition orders that minimize LG ↔ RA/RD treadmill reconfigs overall:
+   RA and RD share one treadmill configuration; counts include transitions across
+   block boundaries (last trial of block N → first trial of block N+1).
 
 Use --seed for a reproducible cohort; omit --seed for a fresh random draw each run.
 """
@@ -17,7 +19,8 @@ import json
 import random
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Sequence
+from itertools import product
+from typing import Dict, List, Sequence, Tuple
 
 
 MAIN_CONDITIONS: Sequence[str] = ("hip_exo", "knee_exo", "no_exo_awinda")
@@ -38,7 +41,7 @@ SUBCONDITIONS: Dict[str, List[str]] = {
 
 @dataclass(frozen=True)
 class BlockSchedule:
-    """One main condition with a randomized sub-condition order."""
+    """One main condition with a sub-condition order (globally minimized LG↔RA/RD switches)."""
 
     main_key: str
     main_label: str
@@ -51,21 +54,59 @@ class SubjectSchedule:
     blocks: tuple[BlockSchedule, ...]
 
 
+def _is_ra_rd_cluster(cond: str) -> bool:
+    return cond in ("RA", "RD")
+
+
+def treadmill_cluster_transitions(sequence: Tuple[str, ...]) -> int:
+    """Count adjacent LG ↔ RA/RD boundaries along a flat trial sequence."""
+    n = 0
+    for a, b in zip(sequence, sequence[1:]):
+        if _is_ra_rd_cluster(a) != _is_ra_rd_cluster(b):
+            n += 1
+    return n
+
+
+def valid_sub_orders(main_key: str) -> List[tuple[str, ...]]:
+    """All sub-orders that keep LG adjacent to the RA/RD pair when three trials exist."""
+    if main_key == "hip_exo":
+        return [("LG", "RA"), ("RA", "LG")]
+    if main_key == "knee_exo":
+        return [("RA", "RD"), ("RD", "RA")]
+    if main_key == "no_exo_awinda":
+        out: list[tuple[str, ...]] = []
+        for p0, p1 in ("RA", "RD"), ("RD", "RA"):
+            out.append(("LG", p0, p1))
+            out.append((p0, p1, "LG"))
+        return out
+    raise ValueError(f"unknown main_key: {main_key!r}")
+
+
 def schedule_subject(rng: random.Random, subject_id: int) -> SubjectSchedule:
     main_order = list(MAIN_CONDITIONS)
     rng.shuffle(main_order)
-    blocks: list[BlockSchedule] = []
-    for main_key in main_order:
-        inner = list(SUBCONDITIONS[main_key])
-        rng.shuffle(inner)
-        blocks.append(
-            BlockSchedule(
-                main_key=main_key,
-                main_label=MAIN_LABELS[main_key],
-                sub_order=tuple(inner),
-            )
+    option_lists = [valid_sub_orders(k) for k in main_order]
+    best_cost: int | None = None
+    best_combos: list[tuple[tuple[str, ...], ...]] = []
+    for combo in product(*option_lists):
+        flat = tuple(cond for block in combo for cond in block)
+        cost = treadmill_cluster_transitions(flat)
+        if best_cost is None or cost < best_cost:
+            best_cost = cost
+            best_combos = [combo]
+        elif cost == best_cost:
+            best_combos.append(combo)
+    assert best_cost is not None
+    chosen = rng.choice(best_combos)
+    blocks = tuple(
+        BlockSchedule(
+            main_key=k,
+            main_label=MAIN_LABELS[k],
+            sub_order=sub,
         )
-    return SubjectSchedule(subject_id=subject_id, blocks=tuple(blocks))
+        for k, sub in zip(main_order, chosen)
+    )
+    return SubjectSchedule(subject_id=subject_id, blocks=blocks)
 
 
 def schedule_cohort(n_subjects: int, seed: int | None) -> List[SubjectSchedule]:
@@ -120,7 +161,7 @@ def main(argv: List[str] | None = None) -> int:
     p.add_argument(
         "n_subjects",
         type=int,
-        help="Number of subjects (each gets an independent shuffle from the RNG stream).",
+        help="Number of subjects (each schedule draws from the same seeded RNG stream).",
     )
     p.add_argument(
         "--seed",
