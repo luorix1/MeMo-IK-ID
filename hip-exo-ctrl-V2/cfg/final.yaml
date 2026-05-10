@@ -17,7 +17,7 @@ trigger_type: "mocap"
 side: "both"
 
 controller_name: "cascade_hip"
-trt_engine_path: "../best_model_0505.trt"
+trt_engine_path: "../best_model_0510.trt"
 
 frame_length: 100
 input_size: 2
