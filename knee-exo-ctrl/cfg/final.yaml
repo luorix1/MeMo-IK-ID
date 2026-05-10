@@ -9,7 +9,7 @@
 # Model output : (1, 1) → knee joint moment (Nm), applied directly as torque
 # ---------------------------------------------------------------
 
-trial_name: "ab04_changseob_knee_0p8mps_rd_exo_on"
+trial_name: "ab08_seokhyun_knee_0p8mps_rd_exo_on"
 exo_on: true
 trigger_type: "mocap"
 
@@ -29,7 +29,7 @@ exp_time_sec: 80
 # Training moments are stored as Nm/kg (body-mass normalized).
 # The controller multiplies model output by mass to get Nm, then by torque_scale.
 # Final torque (Nm) = model_out (Nm/kg) × mass (kg) × torque_scale
-mass: 74.0           # subject body mass (kg) — update per subject
+mass: 71.9           # subject body mass (kg) — update per subject
 scale: 0.09    # dimensionless gain (set < 1.0 to reduce assistance)
 torque_limit: 15.0   # hard clamp (Nm)
 
