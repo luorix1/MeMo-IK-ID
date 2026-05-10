@@ -17,7 +17,7 @@ trigger_type: "mocap"
 side: "right"
 
 controller_name: "cascade_uni"
-trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/knee_0507_final.trt"
+trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/best_model_0510.trt"
 
 frame_length: 100
 input_size: 2
