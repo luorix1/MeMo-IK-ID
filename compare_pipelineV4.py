@@ -459,13 +459,15 @@ def _collect_trial_refs(
             continue
         with h5py.File(h5_path, "r") as h5f:
             for cond in sorted(h5f.keys()):
-                if not include_condition_for_dataset(
-                    cond,
-                    walking_only=walking_only,
-                    levelground_only=levelground_only,
-                ):
-                    continue
                 for trial_name in sorted(h5f[cond].keys()):
+                    if not include_condition_for_dataset(
+                        cond,
+                        walking_only=walking_only,
+                        levelground_only=levelground_only,
+                        subject_id=sid,
+                        trial_name=trial_name,
+                    ):
+                        continue
                     refs.append((sid, cond, trial_name, str(h5_path)))
     return refs
 

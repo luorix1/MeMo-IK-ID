@@ -188,6 +188,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--exclude-stair-tasks",
+        action="store_true",
+        default=False,
+        help=(
+            "After walking/levelground filters, exclude stair conditions (stair_* / names containing "
+            "'stair'). Keeps ramp and level/treadmill walking. See dataset.is_stair_task_condition."
+        ),
+    )
+    parser.add_argument(
         "--lowpass-cutoff-hz",
         type=float,
         default=4.0,
@@ -450,6 +459,11 @@ def main() -> None:
     )
     if args.levelground_only:
         print("  Condition filter: --levelground-only (level-included tasks only; see dataset.py)")
+    elif args.exclude_stair_tasks:
+        print(
+            "  Condition filter: --exclude-stair-tasks (walking-style trials where applicable; "
+            "stair conditions removed)"
+        )
     elif args.walking_only:
         print("  Condition filter: walking-like trials only (--walking-only)")
     _pair_kw = {}
@@ -466,6 +480,7 @@ def main() -> None:
             stride=args.stride,
             walking_only=args.walking_only,
             levelground_only=args.levelground_only,
+            exclude_stair_tasks=args.exclude_stair_tasks,
             normalize=False,
             input_mode=args.input_mode,
             output_mode=args.output_mode,
@@ -482,6 +497,7 @@ def main() -> None:
             stride=args.stride,
             walking_only=args.walking_only,
             levelground_only=args.levelground_only,
+            exclude_stair_tasks=args.exclude_stair_tasks,
             normalize=False,
             input_mode=args.input_mode,
             output_mode=args.output_mode,
@@ -511,6 +527,7 @@ def main() -> None:
                 stride=1,  # dense validation windows
                 walking_only=args.walking_only,
                 levelground_only=args.levelground_only,
+                exclude_stair_tasks=args.exclude_stair_tasks,
                 normalize=False,
                 stats=train_ds.get_stats(),
                 input_mode=args.input_mode,
@@ -528,6 +545,7 @@ def main() -> None:
                 stride=1,  # dense validation windows
                 walking_only=args.walking_only,
                 levelground_only=args.levelground_only,
+                exclude_stair_tasks=args.exclude_stair_tasks,
                 normalize=False,
                 stats=train_ds.get_stats(),
                 input_mode=args.input_mode,

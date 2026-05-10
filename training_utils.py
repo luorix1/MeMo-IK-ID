@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 from typing import Any, List, Optional, Tuple
 
@@ -92,6 +93,7 @@ def train_one_epoch(
     angle_jitter_std: float = 0.0,
     n_position_channels: Optional[int] = None,
     *,
+    angle_input_offset_augment_deg: float = 0.0,
     correlated_vel_noise: bool = False,
     sample_rate_hz: float = 200.0,
     smoothness_lambda: float = 0.0,
@@ -116,6 +118,10 @@ def train_one_epoch(
         the primary loss.  Joint moments are inherently smooth (≤4 Hz content);
         this term discourages high-frequency prediction jitter, especially
         important when the model input carries noise from the cascade.
+    angle_input_offset_augment_deg:
+        If > 0, adds independent ``Uniform(-d, +d)`` degree bias per batch sample
+        and angle DOF (constant over the time window) to position channels only;
+        velocity channels are unchanged.  Set to 0 to disable.
     """
     model.train()
     running_loss = 0.0
@@ -125,8 +131,21 @@ def train_one_epoch(
         x, y = x.to(device), y.to(device)
 
         # ---- Input augmentation ----
-        if angle_jitter_std > 0:
+        _need_n_pos = angle_input_offset_augment_deg > 0 or angle_jitter_std > 0
+        if _need_n_pos:
             n_pos = n_position_channels if n_position_channels is not None else x.shape[1] // 2
+        else:
+            n_pos = 0
+
+        if angle_input_offset_augment_deg > 0 and n_pos > 0:
+            half_rad = math.radians(angle_input_offset_augment_deg)
+            off = (
+                torch.rand(x.shape[0], n_pos, 1, device=x.device, dtype=x.dtype) * 2.0 - 1.0
+            ) * half_rad
+            x = x.clone()
+            x[:, :n_pos, :] = x[:, :n_pos, :] + off
+
+        if angle_jitter_std > 0:
             if n_pos > 0:
                 noise = torch.randn(
                     x.shape[0], n_pos, x.shape[2], device=x.device, dtype=x.dtype

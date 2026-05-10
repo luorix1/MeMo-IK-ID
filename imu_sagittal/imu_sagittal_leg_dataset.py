@@ -407,13 +407,15 @@ class ImuSagittalH5Dataset(Dataset):
                 continue
             with h5py.File(h5_path, "r") as h5f:
                 for cond in sorted(h5f.keys()):
-                    if not include_condition_for_dataset(
-                        cond,
-                        walking_only=self.walking_only,
-                        levelground_only=self.levelground_only,
-                    ):
-                        continue
                     for trial_name in sorted(h5f[cond].keys()):
+                        if not include_condition_for_dataset(
+                            cond,
+                            walking_only=self.walking_only,
+                            levelground_only=self.levelground_only,
+                            subject_id=sid,
+                            trial_name=trial_name,
+                        ):
+                            continue
                         self._trial_refs.append((sid, cond, trial_name, str(h5_path)))
 
         if max_trials is not None:
@@ -615,13 +617,15 @@ def discover_imu_schemas_paired_first_trial(
             continue
         with h5py.File(h5_path, "r") as h5f:
             for cond in sorted(h5f.keys()):
-                if not include_condition_for_dataset(
-                    cond,
-                    walking_only=walking_only,
-                    levelground_only=levelground_only,
-                ):
-                    continue
                 for trial_name in sorted(h5f[cond].keys()):
+                    if not include_condition_for_dataset(
+                        cond,
+                        walking_only=walking_only,
+                        levelground_only=levelground_only,
+                        subject_id=sid,
+                        trial_name=trial_name,
+                    ):
+                        continue
                     tg = h5f[cond][trial_name]
                     if "imu" not in tg or len(tg["imu"].keys()) == 0:
                         continue

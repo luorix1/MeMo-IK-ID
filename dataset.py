@@ -442,6 +442,12 @@ def is_walking_condition(condition_dir: Path) -> bool:
     return bool(include and not exclude)
 
 
+def is_stair_task_condition(condition_name: str) -> bool:
+    """True for Camargo-style stair groups and any condition name containing ``stair``."""
+    c = (condition_name or "").strip().lower()
+    return bool(c) and ("stair" in c)
+
+
 def is_levelground_subset_condition(condition_name: str) -> bool:
     """
     True for "level-included" task names (case-insensitive):
@@ -477,13 +483,15 @@ def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
     """Remove known bad-quality datasets from AddBiomechanics during loading."""
     n = _subject_num(subject_id)
     # Falisse2017, Moore2015, Tan2021, Hamner2013
-    if 386 <= n <= 426:
-        return True
-    # Tiziana2019, Ulrich2023
-    if 444 <= n <= 503:
-        return True
-    # vanderZee2022
-    if 513 <= n <= 522:
+    # if 386 <= n <= 426:
+    #     return True
+    # # Tiziana2019, Ulrich2023
+    # if 444 <= n <= 503:
+    #     return True
+    # # vanderZee2022
+    # if 513 <= n <= 522:
+    #     return True
+    if n >= 57:
         return True
     return False
 
@@ -494,6 +502,8 @@ def include_condition_for_dataset(
     walking_only: bool,
     levelground_only: bool,
     subject_id: str = "",
+    exclude_stair_tasks: bool = False,
+    trial_name: Optional[str] = None,
 ) -> bool:
     """Whether to include an H5 group / trial-folder condition in KineticsTCNDataset.
 
@@ -501,12 +511,33 @@ def include_condition_for_dataset(
     datasets with heterogeneous condition naming).  Subjects beyond S056 use
     canonical unified condition names and are filtered by
     is_levelground_subset_condition() when levelground_only=True, or kept
-    unconditionally when walking_only=True.
+    unconditionally when walking_only=True (except for the ``run`` substring rule below).
+
+    When ``walking_only=True``, any condition or trial identifier whose name contains the
+    substring ``run`` (case-insensitive) is excluded — e.g. AddBiomechanics/OpenCap
+    ``flatrun_*``, ``*uphillrun*``, or trial keys embedding ``run``.  This removes running
+    trials from the default walking-style split.  Pass ``trial_name`` when evaluating a
+    specific trial so both condition and trial keys are checked.
+
+    When ``exclude_stair_tasks=True``, conditions matching :func:`is_stair_task_condition`
+    are dropped after the levelground / walking filters (so e.g. ramp and treadmill
+    walking remain when ``walking_only=True``).
     """
     if levelground_only:
-        return is_levelground_subset_condition(condition_name)
-    if walking_only and _subject_num(subject_id) <= 56:
-        return is_walking_condition(Path(condition_name))
+        if not is_levelground_subset_condition(condition_name):
+            return False
+    elif walking_only and _subject_num(subject_id) <= 56:
+        if not is_walking_condition(Path(condition_name)):
+            return False
+
+    if walking_only:
+        if "run" in (condition_name or "").lower():
+            return False
+        if trial_name is not None and "run" in (trial_name or "").lower():
+            return False
+
+    if exclude_stair_tasks and is_stair_task_condition(condition_name):
+        return False
     return True
 
 
@@ -667,6 +698,7 @@ def enumerate_walking_trials_for_stride_plan(
     b3d_files: Optional[List[Path]],
     walking_only: bool,
     levelground_only: bool = False,
+    exclude_stair_tasks: bool = False,
     max_files: Optional[int],
 ) -> List[Union[Tuple[str, str, str, str], Path]]:
     """
@@ -689,12 +721,16 @@ def enumerate_walking_trials_for_stride_plan(
                 if _subject_id_excluded_temp_broken_h5(sid):
                     continue
                 cond = p.parent.name
+                tr = p.name
                 if not include_condition_for_dataset(
-                    cond, walking_only=walking_only, levelground_only=levelground_only,
+                    cond,
+                    walking_only=walking_only,
+                    levelground_only=levelground_only,
                     subject_id=sid,
+                    exclude_stair_tasks=exclude_stair_tasks,
+                    trial_name=tr,
                 ):
                     continue
-                tr = p.name
                 candidates.append((sid, cond, tr, str(h5_root / f"{sid}.h5")))
         else:
             for subject_h5_path in sorted(Path(requested_h5_dir).glob("S*.h5")):
@@ -705,12 +741,16 @@ def enumerate_walking_trials_for_stride_plan(
                     continue
                 with h5py.File(subject_h5_path, "r") as h5f:
                     for cond in sorted(h5f.keys()):
-                        if not include_condition_for_dataset(
-                            cond, walking_only=walking_only, levelground_only=levelground_only,
-                            subject_id=sid,
-                        ):
-                            continue
                         for trial in sorted(h5f[cond].keys()):
+                            if not include_condition_for_dataset(
+                                cond,
+                                walking_only=walking_only,
+                                levelground_only=levelground_only,
+                                subject_id=sid,
+                                exclude_stair_tasks=exclude_stair_tasks,
+                                trial_name=trial,
+                            ):
+                                continue
                             candidates.append((sid, cond, trial, str(subject_h5_path)))
         if max_files is not None:
             candidates = candidates[: int(max_files)]
@@ -724,8 +764,12 @@ def enumerate_walking_trials_for_stride_plan(
             for td in trial_dirs
             if (not _subject_id_excluded_temp_broken_h5(extract_subject_id(td)))
             and include_condition_for_dataset(
-                td.parent.name, walking_only=walking_only, levelground_only=levelground_only,
+                td.parent.name,
+                walking_only=walking_only,
+                levelground_only=levelground_only,
                 subject_id=extract_subject_id(td),
+                exclude_stair_tasks=exclude_stair_tasks,
+                trial_name=td.name,
             )
         ]
         if max_files is not None:
@@ -787,6 +831,7 @@ def summarize_loc_condition_family_times(
     b3d_files: Optional[List[Path]],
     walking_only: bool,
     levelground_only: bool = False,
+    exclude_stair_tasks: bool = False,
     max_files: Optional[int],
 ) -> Dict[str, float]:
     """Total IK time (seconds) per loc family on the listed trials; only keys with >0 time."""
@@ -798,6 +843,7 @@ def summarize_loc_condition_family_times(
         b3d_files=b3d_files,
         walking_only=walking_only,
         levelground_only=levelground_only,
+        exclude_stair_tasks=exclude_stair_tasks,
         max_files=max_files,
     )
     seconds = {k: 0.0 for k in LOC_CONDITION_FAMILY_KEYS}
@@ -855,6 +901,7 @@ def plan_loc_condition_family_stride_balance(
     b3d_files: Optional[List[Path]],
     walking_only: bool,
     levelground_only: bool = False,
+    exclude_stair_tasks: bool = False,
     max_files: Optional[int],
     base_stride: float,
 ) -> Tuple[Dict[str, float], Dict[str, int]]:
@@ -867,6 +914,7 @@ def plan_loc_condition_family_stride_balance(
         b3d_files=b3d_files,
         walking_only=walking_only,
         levelground_only=levelground_only,
+        exclude_stair_tasks=exclude_stair_tasks,
         max_files=max_files,
     )
     strides = compute_balanced_strides_for_loc_families(secs, base_stride)
@@ -1600,6 +1648,7 @@ class KineticsTCNDataset(Dataset):
         stride: int = 1,
         walking_only: bool = True,
         levelground_only: bool = False,
+        exclude_stair_tasks: bool = False,
         normalize: bool = True,
         max_files: Optional[int] = None,
         stats: Optional[Dict] = None,
@@ -1662,6 +1711,7 @@ class KineticsTCNDataset(Dataset):
         self._pair_mom_r: Optional[List[int]] = None
         self._pair_mom_l: Optional[List[int]] = None
         self.levelground_only = bool(levelground_only)
+        self.exclude_stair_tasks = bool(exclude_stair_tasks)
         self.balance_loc_buckets_oversample = bool(balance_loc_buckets_oversample)
         self.loc_bucket_balance_seed = (
             None if loc_bucket_balance_seed is None else int(loc_bucket_balance_seed)
@@ -1754,14 +1804,16 @@ class KineticsTCNDataset(Dataset):
                     if _subject_id_excluded_temp_broken_h5(sid):
                         continue
                     cond = p.parent.name
+                    trial = p.name
                     if not include_condition_for_dataset(
                         cond,
                         walking_only=self.walking_only,
                         levelground_only=self.levelground_only,
                         subject_id=sid,
+                        exclude_stair_tasks=self.exclude_stair_tasks,
+                        trial_name=trial,
                     ):
                         continue
-                    trial = p.name
                     subject_h5_path = Path(self.h5_dir) / f"{sid}.h5"
                     refs.append((sid, cond, trial, str(subject_h5_path)))
                 self.h5_trial_refs = refs
@@ -1776,14 +1828,16 @@ class KineticsTCNDataset(Dataset):
                         continue
                     with h5py.File(subject_h5_path, "r") as h5f:
                         for cond in sorted(h5f.keys()):
-                            if not include_condition_for_dataset(
-                                cond,
-                                walking_only=self.walking_only,
-                                levelground_only=self.levelground_only,
-                                subject_id=sid,
-                            ):
-                                continue
                             for trial in sorted(h5f[cond].keys()):
+                                if not include_condition_for_dataset(
+                                    cond,
+                                    walking_only=self.walking_only,
+                                    levelground_only=self.levelground_only,
+                                    subject_id=sid,
+                                    exclude_stair_tasks=self.exclude_stair_tasks,
+                                    trial_name=trial,
+                                ):
+                                    continue
                                 refs.append((sid, cond, trial, str(subject_h5_path)))
                 self.h5_trial_refs = refs
                 source_desc = self.h5_dir
@@ -1796,6 +1850,11 @@ class KineticsTCNDataset(Dataset):
                 print(
                     "  [KineticsTCNDataset] levelground_only=True "
                     "(level-included tasks only; see is_levelground_subset_condition)"
+                )
+            elif self.exclude_stair_tasks:
+                print(
+                    "  [KineticsTCNDataset] exclude_stair_tasks=True "
+                    "(walking-style filter where applicable; stair conditions removed — see is_stair_task_condition)"
                 )
         else:
             if b3d_files is not None:
@@ -1814,6 +1873,8 @@ class KineticsTCNDataset(Dataset):
                     walking_only=self.walking_only,
                     levelground_only=self.levelground_only,
                     subject_id=extract_subject_id(td),
+                    exclude_stair_tasks=self.exclude_stair_tasks,
+                    trial_name=td.name,
                 )
             ]
             if max_files is not None:
@@ -1825,6 +1886,11 @@ class KineticsTCNDataset(Dataset):
                 print(
                     "  [KineticsTCNDataset] levelground_only=True "
                     "(level-included tasks only; see is_levelground_subset_condition)"
+                )
+            elif self.exclude_stair_tasks:
+                print(
+                    "  [KineticsTCNDataset] exclude_stair_tasks=True "
+                    "(walking-style filter where applicable; stair conditions removed — see is_stair_task_condition)"
                 )
 
         if stats is not None:

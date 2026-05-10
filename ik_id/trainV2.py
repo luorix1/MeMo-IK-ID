@@ -35,6 +35,21 @@ Changes vs train.py
    (see ``dataset.classify_loc_bucket``) so each present bucket matches the
    largest bucket via sampling with replacement. Validation data are unchanged.
 
+6. **Angle input offset augmentation** (``--angle-input-offset-augment-deg``)
+   Training-only uniform bias per batch sample and angle DOF in ``[-d, +d]``
+   degrees (constant over the window); velocity channels are unchanged.
+   Default ``d=5`` improves robustness to calibration-style offsets; set to ``0``
+   to disable.
+
+7. **Exclude stair tasks** (``--exclude-stair-tasks``)
+   After the usual walking / levelground filters, drops conditions whose names
+   denote stair ascent/descent (see ``dataset.is_stair_task_condition``), e.g.
+   Camargo ``stair_*`` groups, while keeping ramp and treadmill walking.
+
+8. **Cosine LR schedule** (default ``--lr-scheduler cosine``)
+   ``CosineAnnealingLR`` over ``--epochs`` with ``eta_min=1e-6``. Use
+   ``--lr-scheduler none`` for a constant learning rate.
+
 Run from ``os_kinetics/``::
 
     python -m ik_id.trainV2 ...
@@ -164,8 +179,8 @@ def train_one_epoch_diffusion(
     Unlike the standard epoch which calls ``model(x)`` and ``criterion(pred, y)``,
     diffusion training randomly samples a timestep and calls ``model.p_losses(y, x)``.
     Input noise augmentation (iid Gaussian on x) is still supported.
-    Smoothness regularisation and angle-jitter are skipped because the
-    diffusion process already acts as a form of noise regularisation.
+    Smoothness regularisation, angle-jitter, and angle-offset augment are skipped
+    because the diffusion process already acts as a form of noise regularisation.
     """
     model.train()
     running_loss = 0.0
@@ -328,11 +343,25 @@ def main() -> None:
     parser.add_argument("--val-subjects", nargs="+", default=None)
     parser.add_argument("--test-subjects", nargs="+", default=None)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--walking-only", action="store_true", default=True)
+    parser.add_argument(
+        "--walking-only",
+        action="store_true",
+        default=True,
+        help="Walking-style conditions (Camargo S001–S056: dataset.is_walking_condition). "
+             "Also excludes any condition or trial name containing 'run' (case-insensitive), "
+             "e.g. flatrun_*, uphillrun — see dataset.include_condition_for_dataset.",
+    )
     parser.add_argument("--no-walking-only", dest="walking_only", action="store_false")
     parser.add_argument(
         "--levelground-only", action="store_true",
         help="Use only level-included conditions (levelground, treadmill_normal_walk, etc.)"
+    )
+    parser.add_argument(
+        "--exclude-stair-tasks",
+        action="store_true",
+        default=False,
+        help="After walking/levelground filters, exclude stair conditions (stair_* / names containing "
+             "'stair'). Keeps ramp and level/treadmill walking. See dataset.is_stair_task_condition.",
     )
     parser.add_argument(
         "--balance-loc-buckets-oversample",
@@ -436,6 +465,14 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--early-stopping-patience", type=int, default=4)
+    parser.add_argument(
+        "--lr-scheduler",
+        type=str,
+        default="cosine",
+        choices=["cosine", "none"],
+        help="Learning-rate schedule. Default: cosine annealing (CosineAnnealingLR over --epochs, eta_min=1e-6). "
+             "Use 'none' for constant --lr.",
+    )
 
     # ---- Augmentation ----
     parser.add_argument(
@@ -455,6 +492,13 @@ def main() -> None:
              "noisy angle channels via finite difference.  Mimics cascade deployment: "
              "IMU estimator delivers slightly noisy angles, so velocity = finite_diff(noisy_angle). "
              "Without this flag the two noise sources are independent, which never occurs in practice.",
+    )
+    parser.add_argument(
+        "--angle-input-offset-augment-deg", type=float, default=5.0,
+        help="[V2] Training only: per batch sample and angle DOF, add independent "
+             "Uniform(-d,+d) bias in degrees (constant over the window) to position "
+             "channels only; angular velocity channels are unchanged. Improves robustness "
+             "to calibration-style offsets. Default: 5. Set to 0 to disable.",
     )
 
     # ---- Loss ----
@@ -610,6 +654,18 @@ def main() -> None:
           + (f" ({_vel_cut} Hz, order {_vel_ord})" if args.velocity_lowpass_filter else ""))
     if args.rollout_decimate_step > 1:
         print(f"  Rollout decimation: stride={args.rollout_decimate_step} (native ~200 Hz → ~{200.0/args.rollout_decimate_step:.0f} Hz)")
+    if args.levelground_only:
+        print("  Condition filter: --levelground-only (level-included tasks only; see dataset.py)")
+    elif args.exclude_stair_tasks:
+        print(
+            "  Condition filter: --exclude-stair-tasks (walking-style trials where applicable; "
+            "stair conditions removed)"
+        )
+    elif args.walking_only:
+        print(
+            "  Condition filter: walking-like trials only (--walking-only); "
+            "names containing 'run' excluded (see dataset.include_condition_for_dataset)"
+        )
 
     _pair_kw: Dict[str, Any] = {}
     if args.legacy_unilateral_full_window:
@@ -639,6 +695,7 @@ def main() -> None:
                 stride=stride,
                 walking_only=args.walking_only,
                 levelground_only=args.levelground_only,
+                exclude_stair_tasks=args.exclude_stair_tasks,
                 normalize=False,
                 input_mode=args.input_mode,
                 output_mode=args.output_mode,
@@ -655,6 +712,7 @@ def main() -> None:
             stride=stride,
             walking_only=args.walking_only,
             levelground_only=args.levelground_only,
+            exclude_stair_tasks=args.exclude_stair_tasks,
             normalize=False,
             input_mode=args.input_mode,
             output_mode=args.output_mode,
@@ -698,6 +756,7 @@ def main() -> None:
                 data_dir=args.train_dir, h5_dir=args.train_dir, use_h5=True,
                 subject_ids=val_subjects, window_size=args.window_size, stride=1,
                 walking_only=args.walking_only, levelground_only=args.levelground_only,
+                exclude_stair_tasks=args.exclude_stair_tasks,
                 normalize=False, stats=train_ds.get_stats(),
                 input_mode=args.input_mode, output_mode=args.output_mode,
                 laterality=args.laterality, max_files=args.max_val_files,
@@ -708,6 +767,7 @@ def main() -> None:
                 data_dir=args.train_dir, b3d_files=val_files,
                 window_size=args.window_size, stride=1,
                 walking_only=args.walking_only, levelground_only=args.levelground_only,
+                exclude_stair_tasks=args.exclude_stair_tasks,
                 normalize=False, stats=train_ds.get_stats(),
                 input_mode=args.input_mode, output_mode=args.output_mode,
                 laterality=args.laterality, **_pair_kw, **ds_denoise_kw,
@@ -816,10 +876,19 @@ def main() -> None:
     if args.angle_jitter_std > 0:
         flag = "(correlated vel)" if args.correlated_vel_noise else "(angle-only, vel unchanged)"
         print(f"  Angle jitter: std={args.angle_jitter_std} rad  {flag}")
+    if args.angle_input_offset_augment_deg > 0:
+        print(
+            f"  Angle offset augment: Uniform(±{args.angle_input_offset_augment_deg:.1f}°) "
+            "per sample×DOF on angles only (vel unchanged)"
+        )
 
     # ---- Optimiser / scheduler ----
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
+    scheduler: Optional[optim.lr_scheduler.LRScheduler] = None
+    if args.lr_scheduler == "cosine":
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.epochs, eta_min=1e-6
+        )
 
     # Effective sample rate for correlated-vel-noise finite differencing / plots (~native 200 Hz).
     if args.rollout_decimate_step > 1:
@@ -861,7 +930,7 @@ def main() -> None:
 
     print(f"\n{'='*70}")
     print(f"TRAINING  |  epochs={args.epochs}  batch={args.batch_size}  "
-          f"lr={args.lr}  window={args.window_size}")
+          f"lr={args.lr}  lr_scheduler={args.lr_scheduler}  window={args.window_size}")
     print(f"{'='*70}")
 
     _is_diffusion = isinstance(model, GaussianDiffusion1D)
@@ -882,6 +951,7 @@ def main() -> None:
                 input_noise_std=args.input_noise_std,
                 angle_jitter_std=args.angle_jitter_std,
                 n_position_channels=train_ds.n_input_channels // 2,
+                angle_input_offset_augment_deg=args.angle_input_offset_augment_deg,
                 correlated_vel_noise=args.correlated_vel_noise,
                 sample_rate_hz=_sample_rate_hz,
                 smoothness_lambda=args.smoothness_lambda,
@@ -916,10 +986,12 @@ def main() -> None:
                 print(f"Early stopping at epoch {epoch+1} "
                       f"(no improvement for {epochs_no_improve} epochs).")
                 last_epoch_idx = epoch
-                scheduler.step()
+                if scheduler is not None:
+                    scheduler.step()
                 break
 
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
         ep_time = time.time() - ep_start
         lr_now = optimizer.param_groups[0]["lr"]
         log_parts.append(f"lr={lr_now:.2e}  time={ep_time:.1f}s")
