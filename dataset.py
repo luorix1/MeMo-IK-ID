@@ -185,7 +185,7 @@ def _apply_temp_addbiomech_ik_angle_sign_fix(
     dofs = _ADDBIOMECH_TEMP_IK_ANGLE_FLIP_BY_COHORT.get(cohort)
     if not dofs:
         return pos_rad
-    out = np.asarray(pos_rad, dtype=np.float64, copy=True)
+    out = np.array(pos_rad, dtype=np.float64, copy=True)
     for name in dofs:
         if name in IK_DOF_NAMES:
             j = IK_DOF_NAMES.index(name)
@@ -208,7 +208,7 @@ def _apply_temp_addbiomech_moment_sign_fix(
     dofs = _ADDBIOMECH_TEMP_MOMENT_FLIP_BY_COHORT.get(cohort)
     if not dofs:
         return moments
-    out = np.asarray(moments, dtype=np.float64, copy=True)
+    out = np.array(moments, dtype=np.float64, copy=True)
     for name in dofs:
         if name in MOMENT_NAMES:
             j = MOMENT_NAMES.index(name)
