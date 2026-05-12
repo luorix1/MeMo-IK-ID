@@ -345,6 +345,10 @@ class CascadeUni(BaseController):
                 "knee_vel_imu":    float(self.knee_vel_imu_filt),
                 "model_in_knee_angle_raw": float(encoder_raw),
                 "model_in_knee_vel_raw": float(knee_vel_imu_raw),
+                "model_in_knee_angle_raw_r": float(encoder_raw) if self.side == "right" else 0.0,
+                "model_in_knee_angle_raw_l": float(encoder_raw) if self.side == "left" else 0.0,
+                "model_in_knee_vel_raw_r": float(knee_vel_imu_raw) if self.side == "right" else 0.0,
+                "model_in_knee_vel_raw_l": float(knee_vel_imu_raw) if self.side == "left" else 0.0,
                 "model_in_knee_angle_lpf": float(encoder_for_model),
                 "model_in_knee_vel_lpf": float(knee_vel_for_model),
                 # "norm" fields are debug-only references; model input uses raw fields.

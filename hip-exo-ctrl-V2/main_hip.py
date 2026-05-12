@@ -531,6 +531,10 @@ def build_data_log(cfg: dict) -> dict:
         "GPIO": np.zeros(log_size),
         "model_in_angle_raw": np.zeros(log_size),
         "model_in_vel_raw": np.zeros(log_size),
+        "model_in_angle_raw_L": np.zeros(log_size),
+        "model_in_angle_raw_R": np.zeros(log_size),
+        "model_in_vel_raw_L": np.zeros(log_size),
+        "model_in_vel_raw_R": np.zeros(log_size),
         "model_out_nmpkg": np.zeros(log_size),
         "moment_raw": np.zeros(log_size),
         "assist_gate": np.zeros(log_size),
@@ -1049,7 +1053,19 @@ class DualHipRunner:
                         "model_in_angle_raw", r.extra.get("model_in_angle_raw", 0.0)
                     )
                     self.tp.sendValue(
+                        "model_in_angle_raw_L", r.extra.get("model_in_angle_raw_l", 0.0)
+                    )
+                    self.tp.sendValue(
+                        "model_in_angle_raw_R", r.extra.get("model_in_angle_raw_r", 0.0)
+                    )
+                    self.tp.sendValue(
                         "model_in_vel_raw", r.extra.get("model_in_vel_raw", 0.0)
+                    )
+                    self.tp.sendValue(
+                        "model_in_vel_raw_L", r.extra.get("model_in_vel_raw_l", 0.0)
+                    )
+                    self.tp.sendValue(
+                        "model_in_vel_raw_R", r.extra.get("model_in_vel_raw_r", 0.0)
                     )
                     self.tp.sendValue("model_out_nmpkg", r.extra.get("model_out_nmpkg", 0.0))
                     self.tp.sendValue("moment_raw", r.extra.get("moment_raw", 0.0))
@@ -1078,8 +1094,20 @@ class DualHipRunner:
                 self.data_log["model_in_angle_raw"][self.current_idx] = r.extra.get(
                     "model_in_angle_raw", 0.0
                 )
+                self.data_log["model_in_angle_raw_L"][self.current_idx] = r.extra.get(
+                    "model_in_angle_raw_l", 0.0
+                )
+                self.data_log["model_in_angle_raw_R"][self.current_idx] = r.extra.get(
+                    "model_in_angle_raw_r", 0.0
+                )
                 self.data_log["model_in_vel_raw"][self.current_idx] = r.extra.get(
                     "model_in_vel_raw", 0.0
+                )
+                self.data_log["model_in_vel_raw_L"][self.current_idx] = r.extra.get(
+                    "model_in_vel_raw_l", 0.0
+                )
+                self.data_log["model_in_vel_raw_R"][self.current_idx] = r.extra.get(
+                    "model_in_vel_raw_r", 0.0
                 )
                 self.data_log["model_out_nmpkg"][self.current_idx] = r.extra.get(
                     "model_out_nmpkg", 0.0

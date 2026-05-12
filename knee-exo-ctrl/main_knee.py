@@ -66,6 +66,10 @@ def build_data_log(cfg: dict) -> dict:
         "cmd_R": np.zeros(log_size),
         "model_in_knee_angle_raw": np.zeros(log_size),
         "model_in_knee_vel_raw": np.zeros(log_size),
+        "model_in_knee_angle_raw_r": np.zeros(log_size),
+        "model_in_knee_angle_raw_l": np.zeros(log_size),
+        "model_in_knee_vel_raw_r": np.zeros(log_size),
+        "model_in_knee_vel_raw_l": np.zeros(log_size),
         "model_in_knee_angle_norm": np.zeros(log_size),
         "model_in_knee_vel_norm": np.zeros(log_size),
         "model_out_nmpkg": np.zeros(log_size),
@@ -383,6 +387,10 @@ class DualKneeRunner:
                     self.tp.sendValue("assist_gate_l", r.extra.get("assist_gate_l", 0.0))
                     self.tp.sendValue("state_l", r.extra.get("state_l", 0.0))
                     self.tp.sendValue("GPIO", self.gpio.state())
+                    self.tp.sendValue("model_in_knee_angle_raw_r", r.extra.get("model_in_knee_angle_raw_r", 0.0))
+                    self.tp.sendValue("model_in_knee_angle_raw_l", r.extra.get("model_in_knee_angle_raw_l", 0.0))
+                    self.tp.sendValue("model_in_knee_vel_raw_r", r.extra.get("model_in_knee_vel_raw_r", 0.0))
+                    self.tp.sendValue("model_in_knee_vel_raw_l", r.extra.get("model_in_knee_vel_raw_l", 0.0))
                     self.tp.sendValue("model_in_knee_angle_norm", r.extra.get("model_in_knee_angle_norm", 0.0))
                     self.tp.sendValue("model_in_knee_vel_norm", r.extra.get("model_in_knee_vel_norm", 0.0))
                     self.tp.sendValue("model_out_nmpkg", r.extra.get("model_out_nmpkg", 0.0))
@@ -416,6 +424,10 @@ class DualKneeRunner:
                 self.data_log["cmd_R"][self.current_idx] = cmd_R
                 self.data_log["model_in_knee_angle_raw"][self.current_idx] = r.extra.get("model_in_knee_angle_raw", 0.0)
                 self.data_log["model_in_knee_vel_raw"][self.current_idx] = r.extra.get("model_in_knee_vel_raw", 0.0)
+                self.data_log["model_in_knee_angle_raw_r"][self.current_idx] = r.extra.get("model_in_knee_angle_raw_r", 0.0)
+                self.data_log["model_in_knee_angle_raw_l"][self.current_idx] = r.extra.get("model_in_knee_angle_raw_l", 0.0)
+                self.data_log["model_in_knee_vel_raw_r"][self.current_idx] = r.extra.get("model_in_knee_vel_raw_r", 0.0)
+                self.data_log["model_in_knee_vel_raw_l"][self.current_idx] = r.extra.get("model_in_knee_vel_raw_l", 0.0)
                 self.data_log["model_in_knee_angle_norm"][self.current_idx] = r.extra.get("model_in_knee_angle_norm", 0.0)
                 self.data_log["model_in_knee_vel_norm"][self.current_idx] = r.extra.get("model_in_knee_vel_norm", 0.0)
                 self.data_log["model_out_nmpkg"][self.current_idx] = r.extra.get("model_out_nmpkg", 0.0)
