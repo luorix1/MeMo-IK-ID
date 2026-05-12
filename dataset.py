@@ -18,7 +18,9 @@ Windowing:
   - Uniform sliding-window step ``stride`` (default 1 sample between starts; no per-task variation).
 
 Denoising (optional, for noisy IK / ID):
-  - Zero-phase Butterworth low-pass only (default 4 Hz; SciPy ``sosfiltfilt``, forward-backward)
+  - Butterworth low-pass on IK and ID with selectable mode:
+      * ``zero_phase`` (SciPy ``sosfiltfilt``, forward-backward)
+      * ``causal`` (SciPy ``sosfilt``, one-pass)
   Velocities are always computed from the final filtered positions.
 """
 
@@ -50,7 +52,7 @@ except ImportError:
     HAS_SCIPY = False
 
 try:
-    from scipy.signal import butter, sosfiltfilt
+    from scipy.signal import butter, sosfilt, sosfiltfilt
 
     HAS_SCIPY_SIGNAL = True
 except ImportError:
@@ -1071,29 +1073,97 @@ def _lowpass_zero_phase(
         return data
 
 
+def _lowpass_causal(
+    data: np.ndarray,
+    time: np.ndarray,
+    cutoff_hz: float = 4.0,
+    order: int = 4,
+) -> np.ndarray:
+    """
+    Causal (one-pass) Butterworth low-pass along time axis for each channel.
+
+    Implemented with ``scipy.signal.sosfilt``.
+    Falls back to input unchanged when SciPy signal is unavailable or filtering settings
+    are invalid for the current trial length/sample rate.
+    """
+    if not HAS_SCIPY_SIGNAL:
+        return data
+    if data.ndim != 2 or len(time) != data.shape[0] or data.shape[0] < 2:
+        return data
+
+    dt = np.diff(time.astype(np.float64))
+    dt = dt[np.isfinite(dt) & (dt > 0)]
+    if dt.size == 0:
+        return data
+
+    fs = 1.0 / float(np.median(dt))
+    nyquist = 0.5 * fs
+    if not np.isfinite(nyquist) or nyquist <= 0:
+        return data
+    if cutoff_hz <= 0 or cutoff_hz >= nyquist:
+        return data
+
+    try:
+        sos = butter(order, cutoff_hz / nyquist, btype="low", output="sos")
+        return sosfilt(sos, data.astype(np.float64), axis=0)
+    except Exception:
+        return data
+
+
+def _apply_lowpass_mode(
+    data: np.ndarray,
+    time: np.ndarray,
+    *,
+    cutoff_hz: float,
+    order: int,
+    mode: str,
+) -> np.ndarray:
+    mode_norm = str(mode).strip().lower()
+    if mode_norm == "zero_phase":
+        return _lowpass_zero_phase(data, time, cutoff_hz=cutoff_hz, order=order)
+    if mode_norm == "causal":
+        return _lowpass_causal(data, time, cutoff_hz=cutoff_hz, order=order)
+    raise ValueError(f"Unsupported lowpass mode: {mode!r} (expected 'zero_phase' or 'causal').")
+
+
 def _denoise_pos_and_moments(
     pos: np.ndarray,
     moments: np.ndarray,
     time: np.ndarray,
     *,
-    apply_lowpass_filter: bool,
+    apply_position_lowpass_filter: bool,
+    position_lowpass_mode: str,
+    apply_moment_lowpass_filter: bool,
+    moment_lowpass_mode: str,
     lowpass_cutoff_hz: float,
     lowpass_order: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Denoise pipeline for IK positions (rad) and ID moments.
 
-    Optional **zero-phase** Butterworth low-pass only (``_lowpass_zero_phase`` / ``scipy.signal.sosfiltfilt``).
+    Optional Butterworth low-pass on positions and moments with independently
+    configurable modes (``zero_phase`` or ``causal``).
     """
     pos = pos.astype(np.float64)
     moments = moments.astype(np.float64)
 
-    if apply_lowpass_filter:
-        pos = _lowpass_zero_phase(pos, time, cutoff_hz=lowpass_cutoff_hz, order=lowpass_order)
+    if apply_position_lowpass_filter:
+        pos = _apply_lowpass_mode(
+            pos,
+            time,
+            cutoff_hz=lowpass_cutoff_hz,
+            order=lowpass_order,
+            mode=position_lowpass_mode,
+        )
+    if apply_moment_lowpass_filter:
         finite_mom = np.isfinite(moments)
         moments_fill = np.where(finite_mom, moments, 0.0)
-        moments_filt = _lowpass_zero_phase(
-            moments_fill, time, cutoff_hz=lowpass_cutoff_hz, order=lowpass_order
+        moments_filt = _apply_lowpass_mode(
+            moments_fill,
+            time,
+            cutoff_hz=lowpass_cutoff_hz,
+            order=lowpass_order,
+            mode=moment_lowpass_mode,
         )
         moments = np.where(finite_mom, moments_filt, np.nan)
 
@@ -1306,6 +1376,9 @@ def load_trial_from_processed(
     root_dir: str,
     meta_map: Dict[str, Dict],
     apply_lowpass_filter: bool = True,
+    input_lowpass_mode: str = "zero_phase",
+    apply_moment_lowpass_filter: Optional[bool] = None,
+    moment_lowpass_mode: Optional[str] = None,
     lowpass_cutoff_hz: float = 4.0,
     lowpass_order: int = 4,
     target_sample_rate_hz: Optional[float] = None,
@@ -1313,6 +1386,7 @@ def load_trial_from_processed(
     apply_velocity_lowpass_filter: bool = False,
     velocity_lowpass_cutoff_hz: Optional[float] = None,
     velocity_lowpass_order: Optional[int] = None,
+    velocity_lowpass_mode: Optional[str] = None,
 ) -> Optional[Dict]:
     """
     Load one processed trial directory into arrays:
@@ -1385,12 +1459,22 @@ def load_trial_from_processed(
             time, pos, moments, float(target_sample_rate_hz)
         )
 
-    if apply_lowpass_filter:
+    if apply_moment_lowpass_filter is None:
+        apply_moment_lowpass_filter = bool(apply_lowpass_filter)
+    if moment_lowpass_mode is None:
+        moment_lowpass_mode = str(input_lowpass_mode)
+    if velocity_lowpass_mode is None:
+        velocity_lowpass_mode = str(input_lowpass_mode)
+
+    if apply_lowpass_filter or apply_moment_lowpass_filter:
         pos, moments = _denoise_pos_and_moments(
             pos,
             moments,
             time,
-            apply_lowpass_filter=apply_lowpass_filter,
+            apply_position_lowpass_filter=apply_lowpass_filter,
+            position_lowpass_mode=input_lowpass_mode,
+            apply_moment_lowpass_filter=apply_moment_lowpass_filter,
+            moment_lowpass_mode=moment_lowpass_mode,
             lowpass_cutoff_hz=lowpass_cutoff_hz,
             lowpass_order=lowpass_order,
         )
@@ -1407,7 +1491,13 @@ def load_trial_from_processed(
             if velocity_lowpass_order is not None
             else int(lowpass_order)
         )
-        vel = _lowpass_zero_phase(vel, time, cutoff_hz=vel_cutoff, order=vel_order)
+        vel = _apply_lowpass_mode(
+            vel,
+            time,
+            cutoff_hz=vel_cutoff,
+            order=vel_order,
+            mode=velocity_lowpass_mode,
+        )
 
     trial_name = f"{trial_dir.parent.name}/{trial_dir.name}"
     return {
@@ -1443,8 +1533,9 @@ class KineticsTCNDataset(Dataset):
     (no interpolation). ``step=2`` approximates 200 Hz → 100 Hz. Applied before denoising, same stage as
     resampling.
 
-    Optional Butterworth low-pass on IK positions and ID moments is always **zero-phase**
-    (``_lowpass_zero_phase`` / ``sosfiltfilt``), same as ``_denoise_pos_and_moments``.
+    Optional Butterworth low-pass on IK positions and ID moments supports
+    ``zero_phase`` (``sosfiltfilt``) and ``causal`` (``sosfilt``), with
+    independent controls for input-position and output-moment channels.
 
     ``balance_loc_buckets_oversample``: after windowing, optionally upsample with replacement so buckets
     LG, SA, SD, RA, RD (see ``classify_loc_bucket``, same rules as ``compare_pipelineV4``) each contribute
@@ -1662,6 +1753,9 @@ class KineticsTCNDataset(Dataset):
         b3d_files: Optional[List[Path]] = None,  # interpreted as explicit trial_dirs if provided
         preload_trials: bool = False,
         apply_lowpass_filter: bool = True,
+        input_lowpass_mode: str = "zero_phase",
+        apply_moment_lowpass_filter: Optional[bool] = None,
+        moment_lowpass_mode: Optional[str] = None,
         lowpass_cutoff_hz: float = 4.0,
         lowpass_order: int = 4,
         target_sample_rate_hz: Optional[float] = None,
@@ -1669,6 +1763,7 @@ class KineticsTCNDataset(Dataset):
         apply_velocity_lowpass_filter: bool = False,
         velocity_lowpass_cutoff_hz: Optional[float] = None,
         velocity_lowpass_order: Optional[int] = None,
+        velocity_lowpass_mode: Optional[str] = None,
         balance_loc_buckets_oversample: bool = False,
         loc_bucket_balance_seed: Optional[int] = None,
         loc_ascent_descent_map: Optional[str] = None,
@@ -1683,6 +1778,25 @@ class KineticsTCNDataset(Dataset):
         self.normalize = normalize
         self.preload_trials = preload_trials
         self.apply_lowpass_filter = bool(apply_lowpass_filter)
+        self.input_lowpass_mode = str(input_lowpass_mode)
+        if self.input_lowpass_mode not in {"zero_phase", "causal"}:
+            raise ValueError(
+                f"input_lowpass_mode must be 'zero_phase' or 'causal', got {self.input_lowpass_mode!r}."
+            )
+        self.apply_moment_lowpass_filter = (
+            bool(apply_lowpass_filter)
+            if apply_moment_lowpass_filter is None
+            else bool(apply_moment_lowpass_filter)
+        )
+        self.moment_lowpass_mode = (
+            self.input_lowpass_mode
+            if moment_lowpass_mode is None
+            else str(moment_lowpass_mode)
+        )
+        if self.moment_lowpass_mode not in {"zero_phase", "causal"}:
+            raise ValueError(
+                f"moment_lowpass_mode must be 'zero_phase' or 'causal', got {self.moment_lowpass_mode!r}."
+            )
         self.lowpass_cutoff_hz = float(lowpass_cutoff_hz)
         self.lowpass_order = int(lowpass_order)
         self.apply_velocity_lowpass_filter = bool(apply_velocity_lowpass_filter)
@@ -1692,6 +1806,15 @@ class KineticsTCNDataset(Dataset):
         self.velocity_lowpass_order = (
             None if velocity_lowpass_order is None else int(velocity_lowpass_order)
         )
+        self.velocity_lowpass_mode = (
+            self.input_lowpass_mode
+            if velocity_lowpass_mode is None
+            else str(velocity_lowpass_mode)
+        )
+        if self.velocity_lowpass_mode not in {"zero_phase", "causal"}:
+            raise ValueError(
+                f"velocity_lowpass_mode must be 'zero_phase' or 'causal', got {self.velocity_lowpass_mode!r}."
+            )
         self.target_sample_rate_hz: Optional[float] = (
             None if target_sample_rate_hz is None else float(target_sample_rate_hz)
         )
@@ -1789,10 +1912,13 @@ class KineticsTCNDataset(Dataset):
             print("[KineticsTCNDataset] h5py not available; falling back to text .mot/.sto.")
         elif use_h5 and not Path(requested_h5_dir).exists():
             print(f"[KineticsTCNDataset] H5 dir not found ({requested_h5_dir}); falling back to text .mot/.sto.")
-        if self.apply_lowpass_filter and not HAS_SCIPY_SIGNAL:
+        if (
+            (self.apply_lowpass_filter or self.apply_moment_lowpass_filter or self.apply_velocity_lowpass_filter)
+            and not HAS_SCIPY_SIGNAL
+        ):
             print(
                 "[KineticsTCNDataset] scipy.signal unavailable; "
-                "zero-phase low-pass denoising disabled."
+                "low-pass denoising disabled."
             )
 
         if self.use_h5:
@@ -1930,10 +2056,17 @@ class KineticsTCNDataset(Dataset):
                     root_dir=data_dir,
                     meta_map=self.meta_map,
                     apply_lowpass_filter=self.apply_lowpass_filter,
+                    input_lowpass_mode=self.input_lowpass_mode,
+                    apply_moment_lowpass_filter=self.apply_moment_lowpass_filter,
+                    moment_lowpass_mode=self.moment_lowpass_mode,
                     lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                     lowpass_order=self.lowpass_order,
                     target_sample_rate_hz=self.target_sample_rate_hz,
                     rollout_decimate_step=self.rollout_decimate_step,
+                    apply_velocity_lowpass_filter=self.apply_velocity_lowpass_filter,
+                    velocity_lowpass_cutoff_hz=self.velocity_lowpass_cutoff_hz,
+                    velocity_lowpass_order=self.velocity_lowpass_order,
+                    velocity_lowpass_mode=self.velocity_lowpass_mode,
                 )
                 cond_name = ref.parent.name
             if trial is None:
@@ -2088,12 +2221,15 @@ class KineticsTCNDataset(Dataset):
                 time, pos, moments, float(self.target_sample_rate_hz)
             )
 
-        if self.apply_lowpass_filter:
+        if self.apply_lowpass_filter or self.apply_moment_lowpass_filter:
             pos, moments = _denoise_pos_and_moments(
                 pos,
                 moments,
                 time,
-                apply_lowpass_filter=self.apply_lowpass_filter,
+                apply_position_lowpass_filter=self.apply_lowpass_filter,
+                position_lowpass_mode=self.input_lowpass_mode,
+                apply_moment_lowpass_filter=self.apply_moment_lowpass_filter,
+                moment_lowpass_mode=self.moment_lowpass_mode,
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
             )
@@ -2110,7 +2246,13 @@ class KineticsTCNDataset(Dataset):
                 if self.velocity_lowpass_order is not None
                 else int(self.lowpass_order)
             )
-            vel = _lowpass_zero_phase(vel, time, cutoff_hz=vel_cutoff, order=vel_order)
+            vel = _apply_lowpass_mode(
+                vel,
+                time,
+                cutoff_hz=vel_cutoff,
+                order=vel_order,
+                mode=self.velocity_lowpass_mode,
+            )
 
         trial_name_full = f"{subj_id}/{cond_name}/{trial_name}"
         return {
@@ -2142,6 +2284,9 @@ class KineticsTCNDataset(Dataset):
                 root_dir=self.data_dir,
                 meta_map=self.meta_map,
                 apply_lowpass_filter=self.apply_lowpass_filter,
+                input_lowpass_mode=self.input_lowpass_mode,
+                apply_moment_lowpass_filter=self.apply_moment_lowpass_filter,
+                moment_lowpass_mode=self.moment_lowpass_mode,
                 lowpass_cutoff_hz=self.lowpass_cutoff_hz,
                 lowpass_order=self.lowpass_order,
                 target_sample_rate_hz=self.target_sample_rate_hz,
@@ -2149,6 +2294,7 @@ class KineticsTCNDataset(Dataset):
                 apply_velocity_lowpass_filter=self.apply_velocity_lowpass_filter,
                 velocity_lowpass_cutoff_hz=self.velocity_lowpass_cutoff_hz,
                 velocity_lowpass_order=self.velocity_lowpass_order,
+                velocity_lowpass_mode=self.velocity_lowpass_mode,
             )
             label = td
         if trial is None:

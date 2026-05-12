@@ -282,6 +282,20 @@ def main() -> None:
              "(rollout_decimate_step / rollout). Pass this to force decimated loading when the run dir "
              "has no config or to override.",
     )
+    parser.add_argument(
+        "--input-lowpass-mode",
+        type=str,
+        default=None,
+        choices=["zero_phase", "causal"],
+        help="Optional override for IK/velocity LPF mode used by the dataset loader.",
+    )
+    parser.add_argument(
+        "--output-lowpass-mode",
+        type=str,
+        default=None,
+        choices=["none", "zero_phase", "causal"],
+        help="Optional override for ID moment-target LPF mode used by the dataset loader.",
+    )
     args = parser.parse_args()
 
     set_global_seed(args.seed)
@@ -452,32 +466,61 @@ def main() -> None:
         )
 
     test_ds_kwargs["apply_lowpass_filter"] = True
+    input_lpf_mode = "zero_phase"
     if run_cfg is not None:
+        if "input_lowpass_mode" in run_cfg and run_cfg.get("input_lowpass_mode") is not None:
+            input_lpf_mode = str(run_cfg.get("input_lowpass_mode"))
         if "lowpass_cutoff_hz" in run_cfg:
             test_ds_kwargs["lowpass_cutoff_hz"] = float(run_cfg["lowpass_cutoff_hz"])
         if "lowpass_order" in run_cfg:
             test_ds_kwargs["lowpass_order"] = int(run_cfg["lowpass_order"])
-        if "lowpass_cutoff_hz" in run_cfg or "lowpass_order" in run_cfg:
-            print(
-                f"  Dataset LPF: {test_ds_kwargs.get('lowpass_cutoff_hz', 4.0)} Hz, "
-                f"order {test_ds_kwargs.get('lowpass_order', 4)}  (from config.json)"
-            )
+    if args.input_lowpass_mode is not None:
+        input_lpf_mode = args.input_lowpass_mode
+    test_ds_kwargs["input_lowpass_mode"] = input_lpf_mode
+
+    output_lpf_mode = "zero_phase"
+    if run_cfg is not None:
+        if run_cfg.get("output_lowpass_mode") is not None:
+            output_lpf_mode = str(run_cfg.get("output_lowpass_mode"))
+        elif run_cfg.get("apply_moment_lowpass_filter") is not None:
+            output_lpf_mode = "zero_phase" if bool(run_cfg.get("apply_moment_lowpass_filter")) else "none"
+    if args.output_lowpass_mode is not None:
+        output_lpf_mode = args.output_lowpass_mode
+    test_ds_kwargs["apply_moment_lowpass_filter"] = bool(output_lpf_mode != "none")
+    test_ds_kwargs["moment_lowpass_mode"] = (
+        "zero_phase" if output_lpf_mode == "none" else output_lpf_mode
+    )
+    print(
+        f"  Input LPF: {input_lpf_mode} ({test_ds_kwargs.get('lowpass_cutoff_hz', 4.0)} Hz, "
+        f"order {test_ds_kwargs.get('lowpass_order', 4)})"
+    )
+    if output_lpf_mode == "none":
+        print("  Output LPF (moment targets): off")
+    else:
+        print(
+            f"  Output LPF (moment targets): {output_lpf_mode} "
+            f"({test_ds_kwargs.get('lowpass_cutoff_hz', 4.0)} Hz, order {test_ds_kwargs.get('lowpass_order', 4)})"
+        )
 
     vel_lpf_apply = False
     vel_lpf_cut = None
     vel_lpf_ord = None
+    vel_lpf_mode = input_lpf_mode
     if run_cfg is not None:
         if run_cfg.get("velocity_lowpass_filter") is not None:
             vel_lpf_apply = bool(run_cfg.get("velocity_lowpass_filter"))
         vel_lpf_cut = run_cfg.get("velocity_lowpass_cutoff_hz")
         vel_lpf_ord = run_cfg.get("velocity_lowpass_order")
+        if run_cfg.get("velocity_lowpass_mode") is not None:
+            vel_lpf_mode = str(run_cfg.get("velocity_lowpass_mode"))
     test_ds_kwargs["apply_velocity_lowpass_filter"] = bool(vel_lpf_apply)
     test_ds_kwargs["velocity_lowpass_cutoff_hz"] = vel_lpf_cut
     test_ds_kwargs["velocity_lowpass_order"] = vel_lpf_ord
+    test_ds_kwargs["velocity_lowpass_mode"] = vel_lpf_mode
     if vel_lpf_apply:
         _vcut = vel_lpf_cut or test_ds_kwargs.get("lowpass_cutoff_hz", 4.0)
         _vord = vel_lpf_ord or test_ds_kwargs.get("lowpass_order", 4)
-        print(f"  Velocity LPF: on ({_vcut} Hz, order {_vord})")
+        print(f"  Velocity LPF: on ({vel_lpf_mode}, {_vcut} Hz, order {_vord})")
     else:
         print("  Velocity LPF: off")
 

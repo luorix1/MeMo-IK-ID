@@ -96,6 +96,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "loc_ascent_descent_map": "./jinwoo_addbiomechanics_final_ascent_descent_mapping.json",
     "lowpass_cutoff_hz": 6.0,
     "lowpass_order": 4,
+    "input_lowpass_mode": "zero_phase",
+    "output_lowpass_mode": "zero_phase",
     "rollout": False,
     "rollout_decimate_step": None,
     "velocity_lowpass_filter": True,
@@ -155,6 +157,8 @@ DATASET_KEY_FIELDS: Tuple[str, ...] = (
     "loc_ascent_descent_map",
     "lowpass_cutoff_hz",
     "lowpass_order",
+    "input_lowpass_mode",
+    "output_lowpass_mode",
     "rollout_decimate_step",
     "velocity_lowpass_filter",
     "velocity_lowpass_cutoff_hz",
@@ -382,21 +386,37 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
     print("=" * 70)
     print("LOADING TRAINING DATA")
     print("=" * 70)
+    output_lowpass_mode = str(getattr(args, "output_lowpass_mode", "zero_phase"))
+    input_lowpass_mode = str(getattr(args, "input_lowpass_mode", "zero_phase"))
     ds_denoise_kw = dict(
         apply_lowpass_filter=True,
+        input_lowpass_mode=input_lowpass_mode,
+        apply_moment_lowpass_filter=(output_lowpass_mode != "none"),
+        moment_lowpass_mode=("zero_phase" if output_lowpass_mode == "none" else output_lowpass_mode),
         lowpass_cutoff_hz=args.lowpass_cutoff_hz,
         lowpass_order=args.lowpass_order,
         rollout_decimate_step=args.rollout_decimate_step,
         apply_velocity_lowpass_filter=args.velocity_lowpass_filter,
         velocity_lowpass_cutoff_hz=args.velocity_lowpass_cutoff_hz,
         velocity_lowpass_order=args.velocity_lowpass_order,
+        velocity_lowpass_mode=input_lowpass_mode,
     )
     vel_cut = args.velocity_lowpass_cutoff_hz or args.lowpass_cutoff_hz
     vel_ord = args.velocity_lowpass_order or args.lowpass_order
-    print(f"  Dataset denoise: zero-phase LPF ({args.lowpass_cutoff_hz} Hz, order {args.lowpass_order})")
+    print(f"  Input LPF: {input_lowpass_mode} ({args.lowpass_cutoff_hz} Hz, order {args.lowpass_order})")
+    if output_lowpass_mode == "none":
+        print("  Output LPF (moment targets): off")
+    else:
+        print(
+            f"  Output LPF (moment targets): {output_lowpass_mode} "
+            f"({args.lowpass_cutoff_hz} Hz, order {args.lowpass_order})"
+        )
     print(
         f"  Velocity LPF: {'on' if args.velocity_lowpass_filter else 'off'}"
-        + (f" ({vel_cut} Hz, order {vel_ord})" if args.velocity_lowpass_filter else "")
+        + (
+            f" ({input_lowpass_mode}, {vel_cut} Hz, order {vel_ord})"
+            if args.velocity_lowpass_filter else ""
+        )
     )
     if args.rollout_decimate_step > 1:
         print(

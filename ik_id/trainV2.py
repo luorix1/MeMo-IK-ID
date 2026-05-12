@@ -387,6 +387,20 @@ def main() -> None:
     parser.add_argument("--lowpass-cutoff-hz", type=float, default=6.0)
     parser.add_argument("--lowpass-order", type=int, default=4)
     parser.add_argument(
+        "--input-lowpass-mode",
+        type=str,
+        default="zero_phase",
+        choices=["zero_phase", "causal"],
+        help="LPF mode for IK input channels before velocity computation.",
+    )
+    parser.add_argument(
+        "--output-lowpass-mode",
+        type=str,
+        default="zero_phase",
+        choices=["none", "zero_phase", "causal"],
+        help="LPF mode for ID moment targets (none, zero_phase, or causal).",
+    )
+    parser.add_argument(
         "--rollout",
         action="store_true",
         default=False,
@@ -640,18 +654,36 @@ def main() -> None:
     print("=" * 70)
     ds_denoise_kw = dict(
         apply_lowpass_filter=True,
+        input_lowpass_mode=args.input_lowpass_mode,
+        apply_moment_lowpass_filter=(args.output_lowpass_mode != "none"),
+        moment_lowpass_mode=("zero_phase" if args.output_lowpass_mode == "none" else args.output_lowpass_mode),
         lowpass_cutoff_hz=args.lowpass_cutoff_hz,
         lowpass_order=args.lowpass_order,
         rollout_decimate_step=args.rollout_decimate_step,
         apply_velocity_lowpass_filter=args.velocity_lowpass_filter,
         velocity_lowpass_cutoff_hz=args.velocity_lowpass_cutoff_hz,
         velocity_lowpass_order=args.velocity_lowpass_order,
+        velocity_lowpass_mode=args.input_lowpass_mode,
     )
     _vel_cut = args.velocity_lowpass_cutoff_hz or args.lowpass_cutoff_hz
     _vel_ord = args.velocity_lowpass_order or args.lowpass_order
-    print(f"  Dataset denoise: zero-phase LPF ({args.lowpass_cutoff_hz} Hz, order {args.lowpass_order})")
-    print(f"  Velocity LPF: {'on' if args.velocity_lowpass_filter else 'off'}"
-          + (f" ({_vel_cut} Hz, order {_vel_ord})" if args.velocity_lowpass_filter else ""))
+    print(
+        f"  Input LPF: {args.input_lowpass_mode} ({args.lowpass_cutoff_hz} Hz, order {args.lowpass_order})"
+    )
+    if args.output_lowpass_mode == "none":
+        print("  Output LPF (moment targets): off")
+    else:
+        print(
+            f"  Output LPF (moment targets): {args.output_lowpass_mode} "
+            f"({args.lowpass_cutoff_hz} Hz, order {args.lowpass_order})"
+        )
+    print(
+        f"  Velocity LPF: {'on' if args.velocity_lowpass_filter else 'off'}"
+        + (
+            f" ({args.input_lowpass_mode}, {_vel_cut} Hz, order {_vel_ord})"
+            if args.velocity_lowpass_filter else ""
+        )
+    )
     if args.rollout_decimate_step > 1:
         print(f"  Rollout decimation: stride={args.rollout_decimate_step} (native ~200 Hz → ~{200.0/args.rollout_decimate_step:.0f} Hz)")
     if args.levelground_only:
