@@ -9,7 +9,7 @@
 # Model output : (1, 1) → knee joint moment (Nm), applied directly as torque
 # ---------------------------------------------------------------
 
-trial_name: "ab01_jinwoo_knee_0p8mps_rd_exo_on"
+trial_name: "ab02_oscar_knee_0p8mps_ra_exo_on"
 exo_on: true
 trigger_type: "mocap"
 
@@ -17,7 +17,7 @@ trigger_type: "mocap"
 side: "right"
 
 controller_name: "cascade_uni"
-trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/best_model_0510.trt"
+trt_engine_path: "/home/exov3/MeMo-IK-ID/knee-exo-ctrl/best_model_0512.trt"
 
 frame_length: 100
 input_size: 2
