@@ -45,7 +45,12 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from dataset import KineticsTCNDataset, extract_subject_id, find_trial_dirs
+from dataset import (
+    KineticsTCNDataset,
+    _subject_id_excluded_temp_broken_h5,
+    extract_subject_id,
+    find_trial_dirs,
+)
 from model import GaussianDiffusion1D, TCN, TransformerMoment
 from training_utils import MomentLoss, evaluate, set_global_seed, train_one_epoch
 
@@ -302,7 +307,14 @@ def _resolve_subject_split(args: SimpleNamespace) -> Tuple[
     is_h5_only_layout = len(h5_subject_files) > 0
 
     if is_h5_only_layout:
-        subjects = sorted([p.stem.upper() for p in h5_subject_files])
+        # Keep split selection consistent with dataset-side hard subject exclusions.
+        subjects = sorted(
+            [
+                p.stem.upper()
+                for p in h5_subject_files
+                if not _subject_id_excluded_temp_broken_h5(p.stem.upper())
+            ]
+        )
         subject_to_trials = None
     else:
         all_trials = find_trial_dirs(args.train_dir)

@@ -78,6 +78,7 @@ from torch.utils.data import DataLoader
 
 from dataset import (
     KineticsTCNDataset,
+    _subject_id_excluded_temp_broken_h5,
     extract_subject_id,
     find_trial_dirs,
 )
@@ -410,8 +411,8 @@ def main() -> None:
                         help="Apply zero-phase LPF to computed angular velocity. Default: on.")
     parser.add_argument("--no-velocity-lowpass-filter", dest="velocity_lowpass_filter",
                         action="store_false")
-    parser.add_argument("--velocity-lowpass-cutoff-hz", type=float, default=None,
-                        help="Cutoff for velocity LPF. Default: same as --lowpass-cutoff-hz.")
+    parser.add_argument("--velocity-lowpass-cutoff-hz", type=float, default=15,
+                        help="Cutoff for velocity LPF. Default: 15 Hz.")
     parser.add_argument("--velocity-lowpass-order", type=int, default=None,
                         help="Order for velocity LPF. Default: same as --lowpass-order.")
 
@@ -590,7 +591,14 @@ def main() -> None:
     is_h5_only_layout = len(h5_subject_files) > 0
 
     if is_h5_only_layout:
-        subjects = sorted([p.stem.upper() for p in h5_subject_files])
+        # Keep split selection consistent with dataset-side hard subject exclusions.
+        subjects = sorted(
+            [
+                p.stem.upper()
+                for p in h5_subject_files
+                if not _subject_id_excluded_temp_broken_h5(p.stem.upper())
+            ]
+        )
         subject_to_trials = None
     else:
         all_trials = find_trial_dirs(args.train_dir)

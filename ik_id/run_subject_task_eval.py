@@ -239,7 +239,7 @@ def main() -> None:
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="runs/0512_ik_id_hip_compare_causal_in_no_out/best_model.pt",
+        default="runs/0512_ik_id_knee_causal_in_zero_out/best_model.pt",
     )
     parser.add_argument("--data-dir", type=str, default=str(DEFAULT_DATA_DIR))
     parser.add_argument(
@@ -257,7 +257,7 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="results/0512_ik_id_hip_compare_causal_in_no_out_incline_eval",
+        default="results/0512_ik_id_knee_causal_in_zero_out",
     )
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--num-workers", type=int, default=0)
