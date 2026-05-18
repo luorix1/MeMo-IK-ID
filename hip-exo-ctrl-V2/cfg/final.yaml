@@ -9,7 +9,7 @@
 # Model output : (2, 1) → Nm/kg per side; left output sign-flipped before applying
 # ---------------------------------------------------------------
 
-trial_name: "ab06_jimin_hip_0p8mps_lg_exo_on"
+trial_name: "ab06_jimin_hip_0p8mps_ra_exo_on"
 exo_on: true
 trigger_type: "mocap"
 
