@@ -9,7 +9,7 @@
 # Model output : (2, 1) → Nm/kg per side; left output sign-flipped before applying
 # ---------------------------------------------------------------
 
-trial_name: "ab06_jimin_hip_0p8mps_ra_exo_on"
+trial_name: "ab04_changseob_hip_0p8mps_ra_exo_on"
 exo_on: true
 trigger_type: "mocap"
 
@@ -29,7 +29,7 @@ exp_time_sec: 80
 # Training moments are stored as Nm/kg (body-mass normalized).
 # The controller multiplies model output by mass to get Nm, then by scale.
 # Final torque (Nm) = model_out (Nm/kg) × mass (kg) × scale
-mass: 82.6           # subject body mass (kg) — update per subject
+mass: 74.0           # subject body mass (kg) — update per subject
 scale: 0.12          # dimensionless gain (set < 1.0 to reduce assistance)
 torque_limit: 15.0   # hard clamp (Nm)
 
