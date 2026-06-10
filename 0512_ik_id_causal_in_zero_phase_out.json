@@ -1,0 +1,27 @@
+{
+  "base_config": "runs/0510_ik_id_no_stair_epic_only/config.json",
+  "configs": [
+    {
+      "name": "0512_ik_id_hip_compare_causal_in_zero_phase_out",
+      "input_mode": "sagittal_hip_flexion",
+      "output_mode": "sagittal_hip_flexion",
+      "input_lowpass_mode": "causal",
+      "output_lowpass_mode": "zero_phase",
+      "n_val_subjects": 2,
+      "n_test_subjects": 3,
+      "lr": 1e-5,
+      "epochs": 2
+    },
+    {
+      "name": "0512_ik_id_knee_compare_causal_in_zero_phase_out",
+      "input_mode": "sagittal_knee",
+      "output_mode": "sagittal_knee",
+      "input_lowpass_mode": "causal",
+      "output_lowpass_mode": "zero_phase",
+      "n_val_subjects": 2,
+      "n_test_subjects": 3,
+      "lr": 1e-5,
+      "epochs": 2
+    }
+  ]
+}

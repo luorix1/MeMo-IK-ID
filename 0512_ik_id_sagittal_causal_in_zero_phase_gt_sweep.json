@@ -1,0 +1,25 @@
+{
+  "base_config": "0512_ik_id_clean_base_config.json",
+  "configs": [
+    {
+      "name": "0512_ik_id_hip_causal_in_zero_phase_gt",
+      "input_mode": "sagittal_hip_flexion",
+      "output_mode": "sagittal_hip_flexion",
+      "input_lowpass_mode": "causal",
+      "output_lowpass_mode": "zero_phase",
+      "lr": 1e-5,
+      "epochs": 2,
+      "seed": 1
+    },
+    {
+      "name": "0512_ik_id_knee_causal_in_zero_phase_gt",
+      "input_mode": "sagittal_knee",
+      "output_mode": "sagittal_knee",
+      "input_lowpass_mode": "causal",
+      "output_lowpass_mode": "zero_phase",
+      "lr": 1e-5,
+      "epochs": 2,
+      "seed": 1
+    }
+  ]
+}

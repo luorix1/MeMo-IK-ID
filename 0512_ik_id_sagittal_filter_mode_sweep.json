@@ -1,0 +1,47 @@
+{
+  "base_config": "runs/0510_ik_id_no_stair_epic_only/config.json",
+  "configs": [
+    {
+      "name": "0512_ik_id_hip_offline_zero_phase",
+      "input_mode": "sagittal_hip_flexion",
+      "output_mode": "sagittal_hip_flexion",
+      "input_lowpass_mode": "zero_phase",
+      "output_lowpass_mode": "zero_phase"
+    },
+    {
+      "name": "0512_ik_id_hip_deploy_causal_in_out",
+      "input_mode": "sagittal_hip_flexion",
+      "output_mode": "sagittal_hip_flexion",
+      "input_lowpass_mode": "causal",
+      "output_lowpass_mode": "zero_phase"
+    },
+    {
+      "name": "0512_ik_id_hip_compare_causal_in_no_out",
+      "input_mode": "sagittal_hip_flexion",
+      "output_mode": "sagittal_hip_flexion",
+      "input_lowpass_mode": "causal",
+      "output_lowpass_mode": "zero_phase"
+    },
+    {
+      "name": "0512_ik_id_knee_offline_zero_phase",
+      "input_mode": "sagittal_knee",
+      "output_mode": "sagittal_knee",
+      "input_lowpass_mode": "zero_phase",
+      "output_lowpass_mode": "zero_phase"
+    },
+    {
+      "name": "0512_ik_id_knee_deploy_causal_in_out",
+      "input_mode": "sagittal_knee",
+      "output_mode": "sagittal_knee",
+      "input_lowpass_mode": "causal",
+      "output_lowpass_mode": "zero_phase"
+    },
+    {
+      "name": "0512_ik_id_knee_compare_causal_in_no_out",
+      "input_mode": "sagittal_knee",
+      "output_mode": "sagittal_knee",
+      "input_lowpass_mode": "causal",
+      "output_lowpass_mode": "zero_phase"
+    }
+  ]
+}
