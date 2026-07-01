@@ -1,2 +1,2 @@
 metric,unit,rmse_mean_std,r2_mean_std,n_trials
-GT ((ID + applied) / mass) vs logged model,N·m/kg / R²,0.157 ± 0.051,0.817 ± 0.070,22
+GT ((ID + applied) / mass) vs logged model,N·m/kg / R²,0.166 ± 0.071,0.810 ± 0.085,26

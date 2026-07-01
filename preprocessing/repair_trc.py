@@ -184,8 +184,20 @@ def repair_output_dir(output_dir: Path, dry_run: bool = False, force: bool = Fal
                 continue
             if _is_plain_trc(markers):
                 continue
-            prefix = _choose_prefix(subject_key, folder_type, markers, data)
-            repair_trc(trc, prefix, dry_run=dry_run, force=True)
+            try:
+                prefix = _choose_prefix(subject_key, folder_type, markers, data)
+                repair_trc(trc, prefix, dry_run=dry_run, force=True)
+            except RuntimeError as exc:
+                # Unrepairable (e.g. empty export). Quarantine so IK/ID skip it
+                # instead of aborting the whole pipeline on one bad trial.
+                quarantine = trc.with_suffix(trc.suffix + ".missing_data")
+                print(f"  [skip] {trc.name}: {exc}")
+                if not dry_run:
+                    if quarantine.exists():
+                        quarantine.unlink()
+                    trc.rename(quarantine)
+                    print(f"  [quarantine] {trc.name} → {quarantine.name}")
+                continue
             count += 1
     return count
 
