@@ -52,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip-organise", action="store_true")
     p.add_argument("--skip-exo-inertia", action="store_true")
     p.add_argument("--skip-grf-xml", action="store_true")
+    p.add_argument("--skip-repair", action="store_true")
     p.add_argument("--skip-ik", action="store_true")
     p.add_argument("--skip-id", action="store_true")
     return p.parse_args()
@@ -68,6 +69,8 @@ def main() -> None:
         extra.append("--skip-exo-inertia")
     if args.skip_grf_xml:
         extra.append("--skip-grf-xml")
+    if args.skip_repair:
+        extra.append("--skip-repair")
     if args.skip_ik:
         extra.append("--skip-ik")
     if args.skip_id:

@@ -36,6 +36,7 @@ from utils import (
     IK_ACCURACY,
     MARKER_WEIGHTS,
     find_model,
+    is_static_trial,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +139,7 @@ def run_ik_for_output(
         ik_dir.mkdir(parents=True, exist_ok=True)
 
         trc_files = sorted(marker_dir.glob("*.trc"))
+        trc_files = [f for f in trc_files if not is_static_trial(f.stem)]
         if trial_filter:
             trc_files = [f for f in trc_files if trial_filter.lower() in f.stem.lower()]
 

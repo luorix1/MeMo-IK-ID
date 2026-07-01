@@ -4,8 +4,9 @@ Pipeline steps (run in sequence):
   1. organise        — copy & rename source files into the output folder structure
   2. add_exo_inertia — add exo mass/inertia to scaled exo models in opensim/
   3. create_grf_xml  — generate ExternalLoads XML from force-plate MOT files
-  4. run_ik          — run Inverse Kinematics on all marker TRC files
-  5. run_id          — run Inverse Dynamics on all non-static IK results
+  4. repair_trc      — repair malformed TRC files (inf rate / zero timestamps)
+  5. run_ik          — run Inverse Kinematics on all marker TRC files
+  6. run_id          — run Inverse Dynamics on all non-static IK results
 
 Output structure
 ----------------
@@ -78,8 +79,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip-organise",    action="store_true", help="Skip step 1.")
     p.add_argument("--skip-exo-inertia", action="store_true", help="Skip step 2.")
     p.add_argument("--skip-grf-xml",    action="store_true", help="Skip step 3.")
-    p.add_argument("--skip-ik",         action="store_true", help="Skip step 4.")
-    p.add_argument("--skip-id",         action="store_true", help="Skip step 5.")
+    p.add_argument("--skip-repair",     action="store_true", help="Skip step 4.")
+    p.add_argument("--skip-ik",         action="store_true", help="Skip step 5.")
+    p.add_argument("--skip-id",         action="store_true", help="Skip step 6.")
     p.add_argument("--dry-run",         action="store_true",
                    help="Step 1 only: print planned copies without writing files.")
     p.add_argument("--type",  dest="type_filter",
@@ -112,13 +114,19 @@ def main() -> None:
         created = create_grf_xmls(args.output_dir)
         print(f"\nCreated {len(created)} GRF XML file(s).")
 
+    if not args.skip_repair:
+        _header("STEP 4 — Repair malformed TRC files")
+        from repair_trc import repair_output_dir
+        n = repair_output_dir(args.output_dir)
+        print(f"\nRepaired {n} TRC file(s).")
+
     if not args.skip_ik:
-        _header("STEP 4 — Inverse Kinematics")
+        _header("STEP 5 — Inverse Kinematics")
         from run_ik import run_ik_for_output
         run_ik_for_output(args.output_dir, args.type_filter, args.trial_filter)
 
     if not args.skip_id:
-        _header("STEP 5 — Inverse Dynamics")
+        _header("STEP 6 — Inverse Dynamics")
         from run_id import run_id_for_output
         run_id_for_output(args.output_dir, args.type_filter, args.trial_filter)
 
