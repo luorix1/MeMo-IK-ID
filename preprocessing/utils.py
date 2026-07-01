@@ -159,7 +159,7 @@ def extract_trial_name(stem: str, folder_type: str, subject_lower: str) -> str |
             return format_trial_name(raw)
 
     elif folder_type == "hip_exo":
-        if re.match(rf"^{s}_hip_(?:exo_on_)?static$", stem):
+        if re.match(rf"^{s}_hip_(?:exo_on_)?static\d*$", stem):
             return "static"
         # dynamic rep: …_hip_{trial}_exo_on_{rep}
         m = re.match(rf"^{s}_hip_(.+)_exo_on_(\d+)$", stem)
@@ -171,7 +171,7 @@ def extract_trial_name(stem: str, folder_type: str, subject_lower: str) -> str |
             return format_trial_name(m.group(1))
 
     elif folder_type == "knee_exo":
-        if re.match(rf"^{s}_knee_(?:exo_on_)?static$", stem):
+        if re.match(rf"^{s}_knee_(?:exo_on_)?static\d*$", stem):
             return "static"
         # dynamic rep: …_knee_{trial}_exo_on_{rep}
         m = re.match(rf"^{s}_knee_(.+)_exo_on_(\d+)$", stem)

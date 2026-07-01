@@ -1,0 +1,11 @@
+subject,condition,task,speed_mps,n_samples,rmse_nmpkg,r2_nmpkg,offset_s,mass_kg
+AB01_Jinwoo,RA_0p8mps,RA,0.8,5998,0.2026,0.6474,-0.2361,88.0
+AB01_Jinwoo,RD_0p8mps,RD,0.8,5999,0.357,-0.2507,-0.159,88.0
+AB03_Ilseung,RA_0p8mps,RA,0.8,5998,0.2193,0.5785,-0.1801,84.4
+AB03_Ilseung,RD_0p8mps,RD,0.8,5999,0.2498,0.3836,-0.1961,84.4
+AB04_Changseob,RA_0p8mps,RA,0.8,5998,0.4796,-1.6099,-0.223,74.0
+AB04_Changseob,RD_0p8mps,RD,0.8,5999,0.5879,-1.8409,-0.23,74.0
+AB05_Maria,RA_0p8mps,RA,0.8,5999,0.279,0.487,-0.1791,55.0
+AB05_Maria,RD_0p8mps,RD,0.8,5999,0.8803,-0.254,-0.1361,55.0
+AB08_Seokhyun,RA_0p8mps,RA,0.8,5998,0.4379,-1.8239,-0.245,71.9
+AB08_Seokhyun,RD_0p8mps,RD,0.8,5999,0.3592,-0.8656,-0.248,71.9

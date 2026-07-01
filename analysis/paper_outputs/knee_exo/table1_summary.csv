@@ -1,0 +1,2 @@
+joint,n_trials,rmse_nmpkg_mean_std,r2_nmpkg_mean_std,rmse_nmpkg_mean,rmse_nmpkg_std,r2_nmpkg_mean,r2_nmpkg_std
+Knee R,10,0.405 ± 0.207,-0.455 ± 1.014,0.40526041526360157,0.20704158827511623,-0.4548465707512112,1.0139621434610864

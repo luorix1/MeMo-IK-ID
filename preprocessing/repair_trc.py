@@ -50,6 +50,21 @@ def _needs_repair(path: Path) -> bool:
     return rate in {"inf.0", "inf", "nan"} or nmarkers != "24"
 
 
+def _is_plain_trc(markers: list[str]) -> bool:
+    return bool(markers) and all(":" not in m for m in markers)
+
+
+def _plain_score(markers: list[str], data: list[list[str]]) -> int:
+    score = 0
+    for mi in range(len(markers)):
+        for row in data:
+            base = 2 + mi * 3
+            if base + 2 < len(row) and all(row[base + j].strip() for j in range(3)):
+                score += 1
+                break
+    return score
+
+
 def _prefix_score(markers: list[str], data: list[list[str]], marker_prefix: str) -> int:
     want = f"{marker_prefix}:"
     sel = [i for i, m in enumerate(markers) if m.startswith(want)]
@@ -156,9 +171,18 @@ def repair_output_dir(output_dir: Path, dry_run: bool = False, force: bool = Fal
             if "static" in trc.stem.lower():
                 continue
             markers, data = _parse_trc(trc)
+            if _is_plain_trc(markers):
+                if not _needs_repair(trc) and _plain_score(markers, data) >= 20:
+                    continue
+                if not _needs_repair(trc):
+                    continue
             preferred = f"{subject_key}_{FOLDER_PREFIX[folder_type]}"
-            needs = force or _needs_repair(trc) or _prefix_score(markers, data, preferred) < 100
+            needs = force or _needs_repair(trc)
+            if not needs and not _is_plain_trc(markers):
+                needs = _prefix_score(markers, data, preferred) < 20
             if not needs:
+                continue
+            if _is_plain_trc(markers):
                 continue
             prefix = _choose_prefix(subject_key, folder_type, markers, data)
             repair_trc(trc, prefix, dry_run=dry_run, force=True)
