@@ -1,2 +1,2 @@
 metric,unit,rmse_mean_std,r2_mean_std,n_trials
-GT (ID/mass − cmd_R/mass) vs logged model,N·m/kg / R²,0.291 ± 0.195,0.302 ± 0.401,12
+GT (ID/mass − cmd_R/mass) vs logged model,N·m/kg / R²,0.276 ± 0.182,0.282 ± 0.406,14

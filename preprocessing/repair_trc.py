@@ -95,20 +95,23 @@ def _choose_prefix(subject_key: str, folder_type: str, markers: list[str], data:
     return best
 
 
-def repair_trc(path: Path, marker_prefix: str, dry_run: bool = False, force: bool = False) -> bool:
-    """Return True if a repaired file was written."""
-    if not force and not _needs_repair(path):
-        return False
+def _has_missing_coords(markers: list[str], data: list[list[str]]) -> bool:
+    for row in data:
+        for mi in range(len(markers)):
+            base = 2 + mi * 3
+            if base + 2 >= len(row) or not all(row[base + j].strip() for j in range(3)):
+                return True
+    return False
 
-    markers, data = _parse_trc(path)
-    want = f"{marker_prefix}:"
-    sel = [(i, m.split(":", 1)[1]) for i, m in enumerate(markers) if m.startswith(want)]
-    if len(sel) != 24:
-        raise RuntimeError(f"{path.name}: expected 24 markers for prefix '{want}', found {len(sel)}")
 
+def _fill_marker_coords(
+    path: Path,
+    marker_indices: list[int],
+    data: list[list[str]],
+) -> list[np.ndarray]:
     nframes = len(data)
-    coords = []
-    for mi, _short in sel:
+    coords: list[np.ndarray] = []
+    for mi in marker_indices:
         arr = np.full((nframes, 3), np.nan)
         for f, row in enumerate(data):
             base = 2 + mi * 3
@@ -128,23 +131,26 @@ def repair_trc(path: Path, marker_prefix: str, dry_run: bool = False, force: boo
                         col[k] = col[k - 1]
             arr[:, j] = col
         coords.append(arr)
+    return coords
 
-    keep_names = [s[1] for s in sel]
-    header_markers = "\t\t\t".join(keep_names) + "\t\t\t"
+
+def _write_trc(path: Path, marker_names: list[str], coords: list[np.ndarray], dry_run: bool) -> bool:
+    nframes = coords[0].shape[0] if coords else 0
+    header_markers = "\t\t\t".join(marker_names) + "\t\t\t"
     axis_labels = []
-    for i in range(len(keep_names)):
+    for i in range(len(marker_names)):
         axis_labels.extend([f"X{i + 1}", f"Y{i + 1}", f"Z{i + 1}"])
 
     out = [
         f"PathFileType\t4\t(X/Y/Z)\t{path}",
         "DataRate\tCameraRate\tNumFrames\tNumMarkers\tUnits\tOrigDataRate\tOrigDataStartFrame\tOrigNumFrames",
-        f"{FS_HZ}\t{FS_HZ}\t{nframes}\t{len(keep_names)}\tmm\t{FS_HZ}\t1\t{nframes}\t",
+        f"{FS_HZ}\t{FS_HZ}\t{nframes}\t{len(marker_names)}\tmm\t{FS_HZ}\t1\t{nframes}\t",
         "Frame#\tTime\t" + header_markers,
         "\t" + "\t".join(axis_labels) + "\t",
     ]
     for f in range(nframes):
         row = [str(f + 1), f"{f / FS_HZ:.5f}"]
-        for m in range(len(keep_names)):
+        for m in range(len(marker_names)):
             row.extend(f"{coords[m][f, j]:.5f}" for j in range(3))
         out.append("\t".join(row))
 
@@ -160,6 +166,32 @@ def repair_trc(path: Path, marker_prefix: str, dry_run: bool = False, force: boo
     return True
 
 
+def repair_plain_trc(path: Path, dry_run: bool = False) -> bool:
+    """Forward-fill missing coordinates in a plain (unprefixed) TRC export."""
+    markers, data = _parse_trc(path)
+    if not _is_plain_trc(markers) or not _has_missing_coords(markers, data):
+        return False
+
+    coords = _fill_marker_coords(path, list(range(len(markers))), data)
+    return _write_trc(path, markers, coords, dry_run)
+
+
+def repair_trc(path: Path, marker_prefix: str, dry_run: bool = False, force: bool = False) -> bool:
+    """Return True if a repaired file was written."""
+    if not force and not _needs_repair(path):
+        return False
+
+    markers, data = _parse_trc(path)
+    want = f"{marker_prefix}:"
+    sel = [(i, m.split(":", 1)[1]) for i, m in enumerate(markers) if m.startswith(want)]
+    if len(sel) != 24:
+        raise RuntimeError(f"{path.name}: expected 24 markers for prefix '{want}', found {len(sel)}")
+
+    coords = _fill_marker_coords(path, [mi for mi, _short in sel], data)
+    keep_names = [s[1] for s in sel]
+    return _write_trc(path, keep_names, coords, dry_run)
+
+
 def repair_output_dir(output_dir: Path, dry_run: bool = False, force: bool = False) -> int:
     subject_key = _subject_key(output_dir)
     count = 0
@@ -172,6 +204,20 @@ def repair_output_dir(output_dir: Path, dry_run: bool = False, force: bool = Fal
                 continue
             markers, data = _parse_trc(trc)
             if _is_plain_trc(markers):
+                if _has_missing_coords(markers, data):
+                    try:
+                        repair_plain_trc(trc, dry_run=dry_run)
+                    except RuntimeError as exc:
+                        quarantine = trc.with_suffix(trc.suffix + ".missing_data")
+                        print(f"  [skip] {trc.name}: {exc}")
+                        if not dry_run:
+                            if quarantine.exists():
+                                quarantine.unlink()
+                            trc.rename(quarantine)
+                            print(f"  [quarantine] {trc.name} → {quarantine.name}")
+                        continue
+                    count += 1
+                    continue
                 if not _needs_repair(trc) and _plain_score(markers, data) >= 20:
                     continue
                 if not _needs_repair(trc):
