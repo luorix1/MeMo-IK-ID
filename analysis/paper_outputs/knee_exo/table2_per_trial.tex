@@ -1,24 +1,18 @@
 \begin{table}
-\caption{Per-trial metrics.}
+\caption{Per-trial encoder replay and Vicon IK oracle metrics.}
 \label{tab:table2_per_trial}
-\begin{tabular}{lllrrrrrr}
+\begin{tabular}{lllrrrrrrlr}
 \toprule
-subject & condition & task & speed\_mps & n\_samples & rmse\_nmpkg & r2\_nmpkg & offset\_s & mass\_kg \\
+subject & condition & task & speed\_mps & rmse\_encoder\_replay\_nmpkg & r2\_encoder\_replay\_nmpkg & rmse\_vicon\_oracle\_nmpkg & r2\_vicon\_oracle\_nmpkg & encoder\_replay\_excluded & encoder\_correction\_note & offset\_s \\
 \midrule
-AB01\_Jinwoo & RA\_0p8mps & RA & 0.800000 & 5998 & 0.218000 & 0.523500 & -0.236100 & 88.000000 \\
-AB01\_Jinwoo & RD\_0p8mps & RD & 0.800000 & 5999 & 0.348400 & -0.505000 & -0.159000 & 88.000000 \\
-AB03\_Ilseung & RA\_0p8mps & RA & 0.800000 & 5998 & 0.218000 & 0.583500 & -0.180100 & 84.400000 \\
-AB03\_Ilseung & RD\_0p8mps & RD & 0.800000 & 5999 & 0.238700 & 0.437100 & -0.196100 & 84.400000 \\
-AB04\_Changseob & RA\_0p8mps & RA & 0.800000 & 5999 & 0.172700 & 0.637100 & -0.213100 & 74.000000 \\
-AB04\_Changseob & RD\_0p8mps & RD & 0.800000 & 5998 & 0.181700 & 0.716900 & -0.230000 & 74.000000 \\
-AB05\_Maria & RA\_0p8mps & RA & 0.800000 & 5999 & 0.276800 & 0.495000 & -0.179100 & 55.000000 \\
-AB05\_Maria & RD\_0p8mps & RD & 0.800000 & 5999 & 0.876600 & -0.243600 & -0.136100 & 55.000000 \\
-AB06\_Jimin & RA\_0p8mps & RA & 0.800000 & 5999 & 0.306600 & -0.117000 & -0.237000 & 82.600000 \\
-AB06\_Jimin & RD\_0p8mps & RD & 0.800000 & 5999 & 0.120700 & 0.847300 & -0.230100 & 82.600000 \\
-AB07\_Amy & RA\_0p8mps & RA & 0.800000 & 5998 & 0.185700 & 0.067300 & -0.238000 & 51.300000 \\
-AB07\_Amy & RD\_0p8mps & RD & 0.800000 & 5999 & 0.234800 & 0.426000 & -0.234100 & 51.300000 \\
-AB08\_Seokhyun & RA\_0p8mps & RA & 0.800000 & 5998 & 0.226400 & 0.201600 & -0.235100 & 71.900000 \\
-AB08\_Seokhyun & RD\_0p8mps & RD & 0.800000 & 5999 & 0.263400 & -0.122100 & -0.238100 & 71.900000 \\
+AB01\_Jinwoo & RA\_0p8mps & RA & 0.800000 & 0.202500 & 0.589000 & 0.226000 & 0.488200 & False &  & -0.236100 \\
+AB01\_Jinwoo & RD\_0p8mps & RD & 0.800000 & 0.345400 & -0.479800 & 0.224900 & 0.372600 & False & xcorr lag +2 samples (+20 ms) & -0.159000 \\
+AB03\_Ilseung & RA\_0p8mps & RA & 0.800000 & 0.206500 & 0.626400 & 0.189900 & 0.684100 & False &  & -0.180100 \\
+AB03\_Ilseung & RD\_0p8mps & RD & 0.800000 & 0.238000 & 0.440400 & 0.180500 & 0.678100 & False & xcorr lag +2 samples (+20 ms) & -0.196100 \\
+AB04\_Changseob & RA\_0p8mps & RA & 0.800000 & 0.166500 & 0.662500 & 0.189600 & 0.562600 & False &  & -0.213100 \\
+AB04\_Changseob & RD\_0p8mps & RD & 0.800000 & 0.193600 & 0.678500 & 0.248200 & 0.471800 & False &  & -0.230000 \\
+AB06\_Jimin & RA\_0p8mps & RA & 0.800000 & 0.189000 & 0.575700 & 0.215600 & 0.447600 & False & +10 deg offset & -0.237000 \\
+AB06\_Jimin & RD\_0p8mps & RD & 0.800000 & 0.120600 & 0.847500 & 0.209600 & 0.539500 & False &  & -0.230100 \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -1,15 +1,9 @@
-subject,condition,task,speed_mps,n_samples,rmse_nmpkg,r2_nmpkg,offset_s,mass_kg
-AB01_Jinwoo,RA_0p8mps,RA,0.8,5998,0.218,0.5235,-0.2361,88.0
-AB01_Jinwoo,RD_0p8mps,RD,0.8,5999,0.3484,-0.505,-0.159,88.0
-AB03_Ilseung,RA_0p8mps,RA,0.8,5998,0.218,0.5835,-0.1801,84.4
-AB03_Ilseung,RD_0p8mps,RD,0.8,5999,0.2387,0.4371,-0.1961,84.4
-AB04_Changseob,RA_0p8mps,RA,0.8,5999,0.1727,0.6371,-0.2131,74.0
-AB04_Changseob,RD_0p8mps,RD,0.8,5998,0.1817,0.7169,-0.23,74.0
-AB05_Maria,RA_0p8mps,RA,0.8,5999,0.2768,0.495,-0.1791,55.0
-AB05_Maria,RD_0p8mps,RD,0.8,5999,0.8766,-0.2436,-0.1361,55.0
-AB06_Jimin,RA_0p8mps,RA,0.8,5999,0.3066,-0.117,-0.237,82.6
-AB06_Jimin,RD_0p8mps,RD,0.8,5999,0.1207,0.8473,-0.2301,82.6
-AB07_Amy,RA_0p8mps,RA,0.8,5998,0.1857,0.0673,-0.238,51.3
-AB07_Amy,RD_0p8mps,RD,0.8,5999,0.2348,0.426,-0.2341,51.3
-AB08_Seokhyun,RA_0p8mps,RA,0.8,5998,0.2264,0.2016,-0.2351,71.9
-AB08_Seokhyun,RD_0p8mps,RD,0.8,5999,0.2634,-0.1221,-0.2381,71.9
+subject,condition,task,speed_mps,rmse_encoder_replay_nmpkg,r2_encoder_replay_nmpkg,rmse_vicon_oracle_nmpkg,r2_vicon_oracle_nmpkg,encoder_replay_excluded,encoder_correction_note,offset_s
+AB01_Jinwoo,RA_0p8mps,RA,0.8,0.2025,0.589,0.226,0.4882,False,,-0.2361
+AB01_Jinwoo,RD_0p8mps,RD,0.8,0.3454,-0.4798,0.2249,0.3726,False,xcorr lag +2 samples (+20 ms),-0.159
+AB03_Ilseung,RA_0p8mps,RA,0.8,0.2065,0.6264,0.1899,0.6841,False,,-0.1801
+AB03_Ilseung,RD_0p8mps,RD,0.8,0.238,0.4404,0.1805,0.6781,False,xcorr lag +2 samples (+20 ms),-0.1961
+AB04_Changseob,RA_0p8mps,RA,0.8,0.1665,0.6625,0.1896,0.5626,False,,-0.2131
+AB04_Changseob,RD_0p8mps,RD,0.8,0.1936,0.6785,0.2482,0.4718,False,,-0.23
+AB06_Jimin,RA_0p8mps,RA,0.8,0.189,0.5757,0.2156,0.4476,False,+10 deg offset,-0.237
+AB06_Jimin,RD_0p8mps,RD,0.8,0.1206,0.8475,0.2096,0.5395,False,,-0.2301

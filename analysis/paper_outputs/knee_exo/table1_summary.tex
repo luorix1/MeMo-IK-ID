@@ -1,11 +1,11 @@
 \begin{table}
-\caption{Knee R exo GT vs logged model (GPIO sync, 10s start + 10s end trim).}
+\caption{Knee R exo offline replay vs GT (GPIO sync, 10s start + 10s end trim).}
 \label{tab:table1_summary}
-\begin{tabular}{lrllrrrr}
+\begin{tabular}{lrrllll}
 \toprule
-joint & n\_trials & rmse\_nmpkg\_mean\_std & r2\_nmpkg\_mean\_std & rmse\_nmpkg\_mean & rmse\_nmpkg\_std & r2\_nmpkg\_mean & r2\_nmpkg\_std \\
+joint & n\_trials\_vicon & n\_trials\_encoder & rmse\_encoder\_mean\_std & r2\_encoder\_mean\_std & rmse\_vicon\_mean\_std & r2\_vicon\_mean\_std \\
 \midrule
-Knee R & 14 & 0.276 ± 0.182 & 0.282 ± 0.406 & 0.276323 & 0.182123 & 0.281971 & 0.406185 \\
+Knee R & 8 & 8 & 0.208 ± 0.065 & 0.493 ± 0.409 & 0.211 ± 0.023 & 0.531 ± 0.109 \\
 \bottomrule
 \end{tabular}
 \end{table}
