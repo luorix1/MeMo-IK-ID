@@ -1,2 +1,2 @@
 joint,n_trials_vicon,n_trials_encoder,rmse_encoder_mean_std,r2_encoder_mean_std,rmse_vicon_mean_std,r2_vicon_mean_std
-Knee R,8,8,0.208 ± 0.065,0.493 ± 0.409,0.211 ± 0.023,0.531 ± 0.109
+Knee R,8,8,0.261 ± 0.144,0.056 ± 1.114,0.212 ± 0.024,0.526 ± 0.113

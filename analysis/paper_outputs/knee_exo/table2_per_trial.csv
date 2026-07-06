@@ -1,6 +1,6 @@
 subject,condition,task,speed_mps,rmse_encoder_replay_nmpkg,r2_encoder_replay_nmpkg,rmse_vicon_oracle_nmpkg,r2_vicon_oracle_nmpkg,encoder_replay_excluded,encoder_correction_note,offset_s
-AB01_Jinwoo,RA_0p8mps,RA,0.8,0.2025,0.589,0.226,0.4882,False,,-0.2361
-AB01_Jinwoo,RD_0p8mps,RD,0.8,0.3454,-0.4798,0.2249,0.3726,False,xcorr lag +2 samples (+20 ms),-0.159
+AB01_Jinwoo,RA_0p8mps,RA,0.8,0.4763,-1.2255,0.2352,0.4573,False,,-0.236
+AB01_Jinwoo,RD_0p8mps,RD,0.8,0.5,-2.1614,0.2237,0.3668,False,xcorr lag -212 samples (-2120 ms),-0.1691
 AB03_Ilseung,RA_0p8mps,RA,0.8,0.2065,0.6264,0.1899,0.6841,False,,-0.1801
 AB03_Ilseung,RD_0p8mps,RD,0.8,0.238,0.4404,0.1805,0.6781,False,xcorr lag +2 samples (+20 ms),-0.1961
 AB04_Changseob,RA_0p8mps,RA,0.8,0.1665,0.6625,0.1896,0.5626,False,,-0.2131
