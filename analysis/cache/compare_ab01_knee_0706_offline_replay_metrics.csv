@@ -1,0 +1,5 @@
+trial,subject,task,condition,speed_mps,replay_method,rmse_nmpkg,r2,offset_s
+ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo,RA,RA_0p8mps,0.8,Vicon IK oracle,0.18356945494135907,0.640514757350123,-0.05103429600000364
+ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo,RA,RA_0p8mps,0.8,Encoder replay,0.23993573691189535,0.3858561512508746,-0.05103429600000364
+ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo,RD,RD_0p8mps,0.8,Vicon IK oracle,0.2316343678557975,0.6346559000991052,-0.12006863299999182
+ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo,RD,RD_0p8mps,0.8,Encoder replay,0.3022782567205025,0.37782877307118745,-0.12006863299999182

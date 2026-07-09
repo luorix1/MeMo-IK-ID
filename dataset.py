@@ -498,6 +498,14 @@ def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
     return False
 
 
+LOC_RAMP_BUCKET_KEYS: Tuple[str, ...] = ("RA", "RD", "RA/RD")
+
+
+def is_ramp_loc_bucket(bucket: str) -> bool:
+    """True for ramp/incline ascent, descent, or ambiguous ramp buckets."""
+    return bucket in LOC_RAMP_BUCKET_KEYS
+
+
 def include_condition_for_dataset(
     condition_name: str,
     *,
@@ -505,6 +513,8 @@ def include_condition_for_dataset(
     levelground_only: bool,
     subject_id: str = "",
     exclude_stair_tasks: bool = False,
+    ra_rd_only: bool = False,
+    loc_map: Optional[Dict[Tuple[str, str, str], str]] = None,
     trial_name: Optional[str] = None,
 ) -> bool:
     """Whether to include an H5 group / trial-folder condition in KineticsTCNDataset.
@@ -524,6 +534,9 @@ def include_condition_for_dataset(
     When ``exclude_stair_tasks=True``, conditions matching :func:`is_stair_task_condition`
     are dropped after the levelground / walking filters (so e.g. ramp and treadmill
     walking remain when ``walking_only=True``).
+
+    When ``ra_rd_only=True``, only trials whose :func:`classify_loc_bucket` label is
+    RA, RD, or RA/RD are kept. Requires ``trial_name``; uses ``loc_map`` when provided.
     """
     if levelground_only:
         if not is_levelground_subset_condition(condition_name):
@@ -540,6 +553,14 @@ def include_condition_for_dataset(
 
     if exclude_stair_tasks and is_stair_task_condition(condition_name):
         return False
+
+    if ra_rd_only:
+        if trial_name is None:
+            return False
+        bucket = classify_loc_bucket(subject_id, condition_name, trial_name, loc_map)
+        if not is_ramp_loc_bucket(bucket):
+            return False
+
     return True
 
 
@@ -701,6 +722,8 @@ def enumerate_walking_trials_for_stride_plan(
     walking_only: bool,
     levelground_only: bool = False,
     exclude_stair_tasks: bool = False,
+    ra_rd_only: bool = False,
+    loc_ascent_descent_map: Optional[str] = None,
     max_files: Optional[int],
 ) -> List[Union[Tuple[str, str, str, str], Path]]:
     """
@@ -713,6 +736,11 @@ def enumerate_walking_trials_for_stride_plan(
 
     requested_h5_dir = h5_dir or _default_h5_dir_from_processed_root(data_dir)
     use_h5_eff = bool(use_h5 and HAS_H5PY and Path(requested_h5_dir).exists())
+    loc_map = (
+        load_loc_ascent_descent_mapping(loc_ascent_descent_map)
+        if ra_rd_only and loc_ascent_descent_map
+        else None
+    )
     candidates: List[Union[Tuple[str, str, str, str], Path]] = []
 
     if use_h5_eff:
@@ -730,6 +758,8 @@ def enumerate_walking_trials_for_stride_plan(
                     levelground_only=levelground_only,
                     subject_id=sid,
                     exclude_stair_tasks=exclude_stair_tasks,
+                    ra_rd_only=ra_rd_only,
+                    loc_map=loc_map,
                     trial_name=tr,
                 ):
                     continue
@@ -750,6 +780,8 @@ def enumerate_walking_trials_for_stride_plan(
                                 levelground_only=levelground_only,
                                 subject_id=sid,
                                 exclude_stair_tasks=exclude_stair_tasks,
+                                ra_rd_only=ra_rd_only,
+                                loc_map=loc_map,
                                 trial_name=trial,
                             ):
                                 continue
@@ -771,6 +803,8 @@ def enumerate_walking_trials_for_stride_plan(
                 levelground_only=levelground_only,
                 subject_id=extract_subject_id(td),
                 exclude_stair_tasks=exclude_stair_tasks,
+                ra_rd_only=ra_rd_only,
+                loc_map=loc_map,
                 trial_name=td.name,
             )
         ]
@@ -1740,6 +1774,7 @@ class KineticsTCNDataset(Dataset):
         walking_only: bool = True,
         levelground_only: bool = False,
         exclude_stair_tasks: bool = False,
+        ra_rd_only: bool = False,
         normalize: bool = True,
         max_files: Optional[int] = None,
         stats: Optional[Dict] = None,
@@ -1835,6 +1870,7 @@ class KineticsTCNDataset(Dataset):
         self._pair_mom_l: Optional[List[int]] = None
         self.levelground_only = bool(levelground_only)
         self.exclude_stair_tasks = bool(exclude_stair_tasks)
+        self.ra_rd_only = bool(ra_rd_only)
         self.balance_loc_buckets_oversample = bool(balance_loc_buckets_oversample)
         self.loc_bucket_balance_seed = (
             None if loc_bucket_balance_seed is None else int(loc_bucket_balance_seed)
@@ -1937,6 +1973,8 @@ class KineticsTCNDataset(Dataset):
                         levelground_only=self.levelground_only,
                         subject_id=sid,
                         exclude_stair_tasks=self.exclude_stair_tasks,
+                        ra_rd_only=self.ra_rd_only,
+                        loc_map=self._loc_bucket_map,
                         trial_name=trial,
                     ):
                         continue
@@ -1961,6 +1999,8 @@ class KineticsTCNDataset(Dataset):
                                     levelground_only=self.levelground_only,
                                     subject_id=sid,
                                     exclude_stair_tasks=self.exclude_stair_tasks,
+                                    ra_rd_only=self.ra_rd_only,
+                                    loc_map=self._loc_bucket_map,
                                     trial_name=trial,
                                 ):
                                     continue
@@ -1976,6 +2016,11 @@ class KineticsTCNDataset(Dataset):
                 print(
                     "  [KineticsTCNDataset] levelground_only=True "
                     "(level-included tasks only; see is_levelground_subset_condition)"
+                )
+            elif self.ra_rd_only:
+                print(
+                    "  [KineticsTCNDataset] ra_rd_only=True "
+                    "(ramp/incline trials only; buckets RA, RD, RA/RD via classify_loc_bucket)"
                 )
             elif self.exclude_stair_tasks:
                 print(
@@ -2000,6 +2045,8 @@ class KineticsTCNDataset(Dataset):
                     levelground_only=self.levelground_only,
                     subject_id=extract_subject_id(td),
                     exclude_stair_tasks=self.exclude_stair_tasks,
+                    ra_rd_only=self.ra_rd_only,
+                    loc_map=self._loc_bucket_map,
                     trial_name=td.name,
                 )
             ]
@@ -2013,11 +2060,23 @@ class KineticsTCNDataset(Dataset):
                     "  [KineticsTCNDataset] levelground_only=True "
                     "(level-included tasks only; see is_levelground_subset_condition)"
                 )
+            elif self.ra_rd_only:
+                print(
+                    "  [KineticsTCNDataset] ra_rd_only=True "
+                    "(ramp/incline trials only; buckets RA, RD, RA/RD via classify_loc_bucket)"
+                )
             elif self.exclude_stair_tasks:
                 print(
                     "  [KineticsTCNDataset] exclude_stair_tasks=True "
                     "(walking-style filter where applicable; stair conditions removed — see is_stair_task_condition)"
                 )
+
+        n_trials_loaded = len(self.h5_trial_refs) if self.use_h5 else len(self.trial_dirs)
+        if self.ra_rd_only and n_trials_loaded == 0:
+            raise ValueError(
+                "[KineticsTCNDataset] ra_rd_only=True but no RA/RD/RA/RD trials matched. "
+                "Check --train-dir, --loc-ascent-descent-map, and walking/levelground filters."
+            )
 
         if stats is not None:
             self.pos_mean = stats["pos_mean"]

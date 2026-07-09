@@ -46,7 +46,11 @@ Changes vs train.py
    denote stair ascent/descent (see ``dataset.is_stair_task_condition``), e.g.
    Camargo ``stair_*`` groups, while keeping ramp and treadmill walking.
 
-8. **Cosine LR schedule** (default ``--lr-scheduler cosine``)
+8. **Ramp/incline only** (``--ra-rd-only``)
+   Keep only trials classified as RA, RD, or RA/RD by ``dataset.classify_loc_bucket``
+   (ramp ascent/descent and ambiguous incline). Uses ``--loc-ascent-descent-map`` when set.
+
+9. **Cosine LR schedule** (default ``--lr-scheduler cosine``)
    ``CosineAnnealingLR`` over ``--epochs`` with ``eta_min=1e-6``. Use
    ``--lr-scheduler none`` for a constant learning rate.
 
@@ -365,6 +369,13 @@ def main() -> None:
              "'stair'). Keeps ramp and level/treadmill walking. See dataset.is_stair_task_condition.",
     )
     parser.add_argument(
+        "--ra-rd-only",
+        action="store_true",
+        default=False,
+        help="Keep only ramp/incline trials classified as RA, RD, or RA/RD by dataset.classify_loc_bucket. "
+             "Uses --loc-ascent-descent-map for trial-level ascent/descent labels when available.",
+    )
+    parser.add_argument(
         "--balance-loc-buckets-oversample",
         action="store_true",
         default=False,
@@ -578,6 +589,9 @@ def main() -> None:
                 f"(got {args.input_mode!r} vs {args.output_mode!r})."
             )
 
+    if args.ra_rd_only and args.levelground_only:
+        raise ValueError("--ra-rd-only and --levelground-only are mutually exclusive.")
+
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     set_global_seed(args.seed)
@@ -696,6 +710,11 @@ def main() -> None:
         print(f"  Rollout decimation: stride={args.rollout_decimate_step} (native ~200 Hz → ~{200.0/args.rollout_decimate_step:.0f} Hz)")
     if args.levelground_only:
         print("  Condition filter: --levelground-only (level-included tasks only; see dataset.py)")
+    elif args.ra_rd_only:
+        print(
+            "  Condition filter: --ra-rd-only (ramp/incline trials only; "
+            "buckets RA, RD, RA/RD via dataset.classify_loc_bucket)"
+        )
     elif args.exclude_stair_tasks:
         print(
             "  Condition filter: --exclude-stair-tasks (walking-style trials where applicable; "
@@ -711,6 +730,10 @@ def main() -> None:
     if args.legacy_unilateral_full_window:
         _pair_kw["unilateral_paired_side_windows"] = False
 
+    _loc_kw: Dict[str, Any] = {}
+    if args.ra_rd_only or args.balance_loc_buckets_oversample:
+        _loc_kw["loc_ascent_descent_map"] = args.loc_ascent_descent_map
+
     def _make_ds(files_or_subjects, stride, max_files=None, *, balance_loc_buckets_oversample=False):
         # Keep train/val dataset construction in one place so shared kwargs
         # cannot drift between branches.
@@ -723,8 +746,12 @@ def main() -> None:
                     if args.loc_bucket_balance_seed is not None
                     else args.seed
                 ),
-                "loc_ascent_descent_map": args.loc_ascent_descent_map,
             }
+        _ds_filter_kw = dict(
+            ra_rd_only=args.ra_rd_only,
+            **_loc_kw,
+            **_loc_bal_kw,
+        )
         if is_h5_only_layout:
             return KineticsTCNDataset(
                 data_dir=args.train_dir,
@@ -743,7 +770,7 @@ def main() -> None:
                 max_files=max_files,
                 **_pair_kw,
                 **ds_denoise_kw,
-                **_loc_bal_kw,
+                **_ds_filter_kw,
             )
         return KineticsTCNDataset(
             data_dir=args.train_dir,
@@ -759,7 +786,7 @@ def main() -> None:
             laterality=args.laterality,
             **_pair_kw,
             **ds_denoise_kw,
-            **_loc_bal_kw,
+            **_ds_filter_kw,
         )
 
     train_ds = _make_ds(
@@ -797,10 +824,11 @@ def main() -> None:
                 subject_ids=val_subjects, window_size=args.window_size, stride=1,
                 walking_only=args.walking_only, levelground_only=args.levelground_only,
                 exclude_stair_tasks=args.exclude_stair_tasks,
+                ra_rd_only=args.ra_rd_only,
                 normalize=False, stats=train_ds.get_stats(),
                 input_mode=args.input_mode, output_mode=args.output_mode,
                 laterality=args.laterality, max_files=args.max_val_files,
-                **_pair_kw, **ds_denoise_kw,
+                **_pair_kw, **ds_denoise_kw, **_loc_kw,
             )
         else:
             val_ds = KineticsTCNDataset(
@@ -808,9 +836,10 @@ def main() -> None:
                 window_size=args.window_size, stride=1,
                 walking_only=args.walking_only, levelground_only=args.levelground_only,
                 exclude_stair_tasks=args.exclude_stair_tasks,
+                ra_rd_only=args.ra_rd_only,
                 normalize=False, stats=train_ds.get_stats(),
                 input_mode=args.input_mode, output_mode=args.output_mode,
-                laterality=args.laterality, **_pair_kw, **ds_denoise_kw,
+                laterality=args.laterality, **_pair_kw, **ds_denoise_kw, **_loc_kw,
             )
         val_loader = DataLoader(
             val_ds, batch_size=args.batch_size, shuffle=False,

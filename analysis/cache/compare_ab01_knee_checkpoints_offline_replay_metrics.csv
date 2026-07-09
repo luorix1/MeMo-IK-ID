@@ -1,0 +1,13 @@
+checkpoint,trial,subject,task,condition,speed_mps,replay_method,rmse_nmpkg,r2,offset_s
+0512_deployed,ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo,RA,RA_0p8mps,0.8,Vicon IK oracle,0.21643496731687234,0.5002703892547782,-0.05103429600000364
+0512_deployed,ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo,RA,RA_0p8mps,0.8,Encoder replay,0.23717823261232798,0.3998913497990281,-0.05103429600000364
+0512_deployed,ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo,RD,RD_0p8mps,0.8,Vicon IK oracle,0.20828615665363898,0.7045956286779823,-0.12006863299999182
+0512_deployed,ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo,RD,RD_0p8mps,0.8,Encoder replay,0.3641910726943682,0.09686079216930099,-0.12006863299999182
+0706_full,ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo,RA,RA_0p8mps,0.8,Vicon IK oracle,0.183569165969347,0.6405158891407265,-0.05103429600000364
+0706_full,ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo,RA,RA_0p8mps,0.8,Encoder replay,0.23996262753456477,0.38571848408923304,-0.05103429600000364
+0706_full,ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo,RD,RD_0p8mps,0.8,Vicon IK oracle,0.23161784873472208,0.6347080076363067,-0.12006863299999182
+0706_full,ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo,RD,RD_0p8mps,0.8,Encoder replay,0.3022321131755364,0.37801871061438186,-0.12006863299999182
+0706_ra_rd_only,ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo,RA,RA_0p8mps,0.8,Vicon IK oracle,0.1837851693148312,0.6396693912564094,-0.05103429600000364
+0706_ra_rd_only,ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo,RA,RA_0p8mps,0.8,Encoder replay,0.24086006122441922,0.38111520239925,-0.05103429600000364
+0706_ra_rd_only,ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo,RD,RD_0p8mps,0.8,Vicon IK oracle,0.23191609888433767,0.6337666420427986,-0.12006863299999182
+0706_ra_rd_only,ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo,RD,RD_0p8mps,0.8,Encoder replay,0.3027332341037199,0.37595442805123014,-0.12006863299999182

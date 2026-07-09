@@ -1,0 +1,15 @@
+trial,trial_key,subject,task,condition,speed_mps,replay_method,rmse_nmpkg,r2,offset_s
+ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo::RA_0p8mps,AB01_Jinwoo,RA,RA_0p8mps,0.8,Vicon IK oracle,0.21161130512278348,0.5607530146317026,-0.23603429600000347
+ab01_jinwoo_knee_0p8mps_ra_exo_on,AB01_Jinwoo::RA_0p8mps,AB01_Jinwoo,RA,RA_0p8mps,0.8,Encoder replay,0.4498940438754061,-0.9854161272663475,-0.23603429600000347
+ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo::RD_0p8mps,AB01_Jinwoo,RD,RD_0p8mps,0.8,Vicon IK oracle,0.1857642248330481,0.5635412727257156,-0.16906863299999175
+ab01_jinwoo_knee_0p8mps_rd_exo_on,AB01_Jinwoo::RD_0p8mps,AB01_Jinwoo,RD,RD_0p8mps,0.8,Encoder replay,0.4642509415116724,-1.725992200652371,-0.16906863299999175
+ab03_ilseung_knee_0p8mps_ra_exo_on,AB03_Ilseung::RA_0p8mps,AB03_Ilseung,RA,RA_0p8mps,0.8,Vicon IK oracle,0.1840928501233424,0.7030055237857727,-0.18005715299997993
+ab03_ilseung_knee_0p8mps_ra_exo_on,AB03_Ilseung::RA_0p8mps,AB03_Ilseung,RA,RA_0p8mps,0.8,Encoder replay,0.21075074826899765,0.6107641984369627,-0.18005715299997993
+ab03_ilseung_knee_0p8mps_rd_exo_on,AB03_Ilseung::RD_0p8mps,AB03_Ilseung,RD,RD_0p8mps,0.8,Vicon IK oracle,0.1798029911814725,0.680726960375402,-0.1960534950002475
+ab03_ilseung_knee_0p8mps_rd_exo_on,AB03_Ilseung::RD_0p8mps,AB03_Ilseung,RD,RD_0p8mps,0.8,Encoder replay,0.21051629241988462,0.562336985156022,-0.1960534950002475
+ab04_changseob_knee_0p8mps_ra_exo_on,AB04_Changseob::RA_0p8mps,AB04_Changseob,RA,RA_0p8mps,0.8,Vicon IK oracle,0.1813387591170457,0.599712340874593,-0.21305710399999533
+ab04_changseob_knee_0p8mps_ra_exo_on,AB04_Changseob::RA_0p8mps,AB04_Changseob,RA,RA_0p8mps,0.8,Encoder replay,0.158621651470126,0.6937219621130477,-0.21305710399999533
+ab04_changseob_knee_0p8mps_rd_exo_on,AB04_Changseob::RD_0p8mps,AB04_Changseob,RD,RD_0p8mps,0.8,Vicon IK oracle,0.249115598207459,0.46780678669582165,-0.23003801299991666
+ab04_changseob_knee_0p8mps_rd_exo_on,AB04_Changseob::RD_0p8mps,AB04_Changseob,RD,RD_0p8mps,0.8,Encoder replay,0.1714151733869623,0.7480200335768714,-0.23003801299991666
+ab06_jimin_knee_0p8mps_rd_exo_on,AB06_Jimin::RD_0p8mps,AB06_Jimin,RD,RD_0p8mps,0.8,Vicon IK oracle,0.21583632831753036,0.5115495249666207,-0.23005192100005845
+ab06_jimin_knee_0p8mps_rd_exo_on,AB06_Jimin::RD_0p8mps,AB06_Jimin,RD,RD_0p8mps,0.8,Encoder replay,0.11883892545984513,0.8519225660128705,-0.23005192100005845

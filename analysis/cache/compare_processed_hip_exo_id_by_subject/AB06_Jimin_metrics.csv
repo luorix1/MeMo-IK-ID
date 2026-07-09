@@ -1,0 +1,5 @@
+trial,trial_key,subject,task,condition,rmse_nmpkg,r2_nmpkg,offset_s
+ab06_jimin_hip_0p8mps_lg_exo_on,AB06_Jimin::LG_0p8mps,AB06_Jimin,LG,LG_0p8mps,0.13961110719865297,0.759548394755936,-0.23805788499996927
+ab06_jimin_hip_1p2mps_lg_exo_on,AB06_Jimin::LG_1p2mps,AB06_Jimin,LG,LG_1p2mps,0.15648653706676183,0.8586844772305318,-0.22704151699992225
+ab06_jimin_hip_1p6mps_lg_exo_on,AB06_Jimin::LG_1p6mps,AB06_Jimin,LG,LG_1p6mps,0.24566350506605952,0.8080684791041121,-0.23505527399985104
+ab06_jimin_hip_0p8mps_ra_exo_on,AB06_Jimin::RA_0p8mps,AB06_Jimin,RA,RA_0p8mps,0.14019002788676785,0.9087128202064522,-0.24005893300002756

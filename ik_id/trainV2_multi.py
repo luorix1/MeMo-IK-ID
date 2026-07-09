@@ -96,6 +96,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "seed": 42,
     "walking_only": True,
     "levelground_only": False,
+    "exclude_stair_tasks": False,
+    "ra_rd_only": False,
     "balance_loc_buckets_oversample": False,
     "loc_bucket_balance_seed": None,
     "loc_ascent_descent_map": "./jinwoo_addbiomechanics_final_ascent_descent_mapping.json",
@@ -157,6 +159,8 @@ DATASET_KEY_FIELDS: Tuple[str, ...] = (
     "seed",
     "walking_only",
     "levelground_only",
+    "exclude_stair_tasks",
+    "ra_rd_only",
     "balance_loc_buckets_oversample",
     "loc_bucket_balance_seed",
     "loc_ascent_descent_map",
@@ -284,6 +288,9 @@ def make_args(config: Mapping[str, Any]) -> SimpleNamespace:
                 "For sagittal pair/single-joint modes, input_mode and output_mode must match "
                 f"(got {cfg['input_mode']!r} vs {cfg['output_mode']!r})."
             )
+
+    if bool(cfg.get("ra_rd_only")) and bool(cfg.get("levelground_only")):
+        raise ValueError("ra_rd_only and levelground_only are mutually exclusive.")
 
     return SimpleNamespace(**cfg)
 
@@ -435,10 +442,23 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
             f"  Rollout decimation: stride={args.rollout_decimate_step} "
             f"(native ~200 Hz -> ~{200.0 / args.rollout_decimate_step:.0f} Hz)"
         )
+    if args.levelground_only:
+        print("  Condition filter: levelground_only (level-included tasks only)")
+    elif args.ra_rd_only:
+        print(
+            "  Condition filter: ra_rd_only (ramp/incline trials only; "
+            "buckets RA, RD, RA/RD via dataset.classify_loc_bucket)"
+        )
+    elif args.exclude_stair_tasks:
+        print("  Condition filter: exclude_stair_tasks (stair conditions removed)")
 
     pair_kw: Dict[str, Any] = {}
     if args.legacy_unilateral_full_window:
         pair_kw["unilateral_paired_side_windows"] = False
+
+    loc_kw: Dict[str, Any] = {}
+    if args.ra_rd_only or args.balance_loc_buckets_oversample:
+        loc_kw["loc_ascent_descent_map"] = args.loc_ascent_descent_map
 
     loc_bal_kw: Dict[str, Any] = {}
     if args.balance_loc_buckets_oversample:
@@ -447,8 +467,14 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
             "loc_bucket_balance_seed": (
                 args.loc_bucket_balance_seed if args.loc_bucket_balance_seed is not None else args.seed
             ),
-            "loc_ascent_descent_map": args.loc_ascent_descent_map,
         }
+
+    ds_filter_kw = dict(
+        exclude_stair_tasks=args.exclude_stair_tasks,
+        ra_rd_only=args.ra_rd_only,
+        **loc_kw,
+        **loc_bal_kw,
+    )
 
     if is_h5_only_layout:
         train_ds = KineticsTCNDataset(
@@ -467,7 +493,7 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
             max_files=args.max_train_files,
             **pair_kw,
             **ds_denoise_kw,
-            **loc_bal_kw,
+            **ds_filter_kw,
         )
     else:
         train_ds = KineticsTCNDataset(
@@ -483,7 +509,7 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
             laterality=args.laterality,
             **pair_kw,
             **ds_denoise_kw,
-            **loc_bal_kw,
+            **ds_filter_kw,
         )
 
     val_ds = None
@@ -501,6 +527,8 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
                 stride=1,
                 walking_only=args.walking_only,
                 levelground_only=args.levelground_only,
+                exclude_stair_tasks=args.exclude_stair_tasks,
+                ra_rd_only=args.ra_rd_only,
                 normalize=False,
                 stats=train_ds.get_stats(),
                 input_mode=args.input_mode,
@@ -509,6 +537,7 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
                 max_files=args.max_val_files,
                 **pair_kw,
                 **ds_denoise_kw,
+                **loc_kw,
             )
         else:
             val_ds = KineticsTCNDataset(
@@ -518,6 +547,8 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
                 stride=1,
                 walking_only=args.walking_only,
                 levelground_only=args.levelground_only,
+                exclude_stair_tasks=args.exclude_stair_tasks,
+                ra_rd_only=args.ra_rd_only,
                 normalize=False,
                 stats=train_ds.get_stats(),
                 input_mode=args.input_mode,
@@ -525,6 +556,7 @@ def build_dataset_bundle(args: SimpleNamespace) -> DatasetBundle:
                 laterality=args.laterality,
                 **pair_kw,
                 **ds_denoise_kw,
+                **loc_kw,
             )
 
     return DatasetBundle(
