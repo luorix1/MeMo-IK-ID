@@ -37,14 +37,16 @@ torque_limit: 15.0   # hard clamp (Nm)
 # Output delay before torque LPF / rate limit (seconds). Same pattern as biotorque / hip cascade.
 delay: 0
 
-# ---- inference-path causal low-pass ----
-# Each signal (angle input, velocity input, torque output) has its own cutoff and order.
-# Remove a key to fall back to infer_lpf_hz / infer_lpf_order.
-angle_lpf_hz:    6     # LPF cutoff for joint angle fed to model (Hz)
+# ---- inference-path low-pass ----
+# input_lpf_enabled: false matches compare_processed_knee_exo_id encoder replay
+# (raw model_in_knee_angle_raw + model_in_knee_vel_raw → TCN, no input LPF).
+# out_lpf stays causal on-device (offline replay uses zero-phase 6 Hz — closest real-time match).
+input_lpf_enabled: false
+angle_lpf_hz:    6     # used only when input_lpf_enabled: true
 angle_lpf_order: 4
-vel_lpf_hz:      10    # LPF cutoff for joint angular velocity fed to model (Hz)
+vel_lpf_hz:      10
 vel_lpf_order:   4
-out_lpf_hz:      6     # LPF cutoff applied to raw model torque output (Hz)
+out_lpf_hz:      6     # causal LPF on raw model torque output (Hz)
 out_lpf_order:   4
 
 # ---- normalization stats from training checkpoint ----

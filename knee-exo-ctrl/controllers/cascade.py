@@ -89,6 +89,9 @@ class CascadeUni(BaseController):
         _vel_lpf_order   = int(config.get("vel_lpf_order",     _lpf_order_default))
         _out_lpf_hz      = float(config.get("out_lpf_hz",      _lpf_hz_default))
         _out_lpf_order   = int(config.get("out_lpf_order",     _lpf_order_default))
+        # When False, feed raw sign-corrected encoder angle + IMU velocity to TRT
+        # (matches compare_processed_knee_exo_id encoder replay / no-LPF offline path).
+        self.input_lpf_enabled = bool(config.get("input_lpf_enabled", True))
 
         # Model outputs Nm/kg (moments stored as N*m/kg in training dataset).
         # Multiply by subject mass to recover Nm, then by torque_scale for tuning.
@@ -290,9 +293,13 @@ class CascadeUni(BaseController):
         self.knee_u_enc_filt   = self._lpf(self.knee_u_enc_filt,   enc_vel_raw,      self.knee_filter_tau)
         self.knee_vel_imu_filt = self._lpf(self.knee_vel_imu_filt, knee_vel_imu_raw, self.imu_filter_tau)
 
-        # ---- build model input (raw, sign-corrected; matches training normalize=False) ----
-        encoder_for_model = self.infer_angle_lpf.update(encoder_raw)
-        knee_vel_for_model = self.infer_vel_lpf.update(knee_vel_imu_raw)
+        # ---- build model input (sign-corrected; matches training normalize=False) ----
+        if self.input_lpf_enabled:
+            encoder_for_model = self.infer_angle_lpf.update(encoder_raw)
+            knee_vel_for_model = self.infer_vel_lpf.update(knee_vel_imu_raw)
+        else:
+            encoder_for_model = float(encoder_raw)
+            knee_vel_for_model = float(knee_vel_imu_raw)
         knee_angle_norm = self._normalize(encoder_for_model, self.knee_angle_mean, self.knee_angle_std)
         knee_vel_norm = self._normalize(knee_vel_for_model, self.knee_vel_mean, self.knee_vel_std)
         x_last = np.array([
