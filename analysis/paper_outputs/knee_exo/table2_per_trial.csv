@@ -10,5 +10,5 @@ AB06_Jimin,RA_0p8mps,RA,0.8,0.2066,0.5076,0.1468,0.7513,False,no LPF; logged raw
 AB06_Jimin,RD_0p8mps,RD,0.8,0.1694,0.7072,0.1093,0.8782,False,no LPF; logged raw vel; GT ID xcorr shift +3 samples,-0.2301
 AB07_Amy,RA_0p8mps,RA,0.8,0.159,0.3418,0.1596,0.3367,False,no LPF; logged raw vel; GT ID xcorr shift +4 samples,-0.238
 AB07_Amy,RD_0p8mps,RD,0.8,0.1929,0.6214,0.1942,0.6161,False,no LPF; logged raw vel; GT ID xcorr shift +3 samples,-0.2341
-AB08_Seokhyun,RA_0p8mps,RA,0.8,0.214,0.3052,0.194,0.4288,False,no LPF; logged raw vel; GT ID xcorr shift +4 samples,-0.2351
-AB08_Seokhyun,RD_0p8mps,RD,0.8,0.2439,0.0714,0.2369,0.1239,False,no LPF; logged raw vel; GT ID xcorr shift +4 samples,-0.2381
+AB08_Seokhyun,RA_0p8mps,RA,0.8,0.1462,0.6112,0.138,0.6536,False,no LPF; logged raw vel; GT ID xcorr shift +3 samples,-0.156
+AB08_Seokhyun,RD_0p8mps,RD,0.8,0.2398,0.5725,0.18,0.7592,False,no LPF; logged raw vel; GT ID xcorr shift +4 samples,-0.2331
