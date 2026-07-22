@@ -1,5 +1,5 @@
-trial,trial_key,subject,task,condition,rmse_nmpkg,r2_nmpkg,offset_s
-ab04_changseob_hip_0p8mps_lg_exo_on,AB04_Changseob::LG_0p8mps,AB04_Changseob,LG,LG_0p8mps,0.11142355544462648,0.8095280285108463,-0.23103956499998812
-ab04_changseob_hip_1p2mps_lg_exo_on,AB04_Changseob::LG_1p2mps,AB04_Changseob,LG,LG_1p2mps,0.13945537320498894,0.8653178072030059,-0.23003775100008172
-ab04_changseob_hip_1p6mps_lg_exo_on,AB04_Changseob::LG_1p6mps,AB04_Changseob,LG,LG_1p6mps,0.2436478897335525,0.7770624025181562,-0.23206445499996065
-ab04_changseob_hip_0p8mps_ra_exo_on,AB04_Changseob::RA_0p8mps,AB04_Changseob,RA,RA_0p8mps,0.14081119828504635,0.9057378254027794,-0.1370676320001185
+trial,trial_key,subject,task,condition,rmse_nmpkg,r2_nmpkg,offset_s,sync_method
+ab04_changseob_hip_0p8mps_lg_exo_on,AB04_Changseob::LG_0p8mps,AB04_Changseob,LG,LG_0p8mps,0.11142355544462648,0.8095280285108463,-0.23103956499998812,gpio_falling_edge
+ab04_changseob_hip_1p2mps_lg_exo_on,AB04_Changseob::LG_1p2mps,AB04_Changseob,LG,LG_1p2mps,0.13945537320498894,0.8653178072030059,-0.23003775100008172,gpio_falling_edge
+ab04_changseob_hip_1p6mps_lg_exo_on,AB04_Changseob::LG_1p6mps,AB04_Changseob,LG,LG_1p6mps,0.2436478897335525,0.7770624025181562,-0.23206445499996065,gpio_falling_edge
+ab04_changseob_hip_0p8mps_ra_exo_on,AB04_Changseob::RA_0p8mps,AB04_Changseob,RA,RA_0p8mps,0.14081119828504635,0.9057378254027794,-0.1370676320001185,gpio_falling_edge

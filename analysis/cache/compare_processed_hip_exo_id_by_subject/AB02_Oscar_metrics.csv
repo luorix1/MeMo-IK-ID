@@ -1,5 +1,5 @@
-trial,trial_key,subject,task,condition,rmse_nmpkg,r2_nmpkg,offset_s
-ab02_oscar_hip_0p8mps_lg_exo_on,AB02_Oscar::LG_0p8mps,AB02_Oscar,LG,LG_0p8mps,0.1562371584775771,0.6144237159471433,-0.23003840200000925
-ab02_oscar_hip_1p2mps_lg_exo_on,AB02_Oscar::LG_1p2mps,AB02_Oscar,LG,LG_1p2mps,0.1959333269714258,0.7249620873373472,-0.2320591249999866
-ab02_oscar_hip_1p6mps_lg_exo_on,AB02_Oscar::LG_1p6mps,AB02_Oscar,LG,LG_1p6mps,0.20374301226870067,0.8204413651276348,-0.23206250199998024
-ab02_oscar_hip_0p8mps_ra_exo_on,AB02_Oscar::RA_0p8mps,AB02_Oscar,RA,RA_0p8mps,0.18901301879914362,0.7987924934372992,-0.23604987100002384
+trial,trial_key,subject,task,condition,rmse_nmpkg,r2_nmpkg,offset_s,sync_method
+ab02_oscar_hip_0p8mps_lg_exo_on,AB02_Oscar::LG_0p8mps,AB02_Oscar,LG,LG_0p8mps,0.1562371584775771,0.6144237159471433,-0.23003840200000925,gpio_falling_edge
+ab02_oscar_hip_1p2mps_lg_exo_on,AB02_Oscar::LG_1p2mps,AB02_Oscar,LG,LG_1p2mps,0.1959333269714258,0.7249620873373472,-0.2320591249999866,gpio_falling_edge
+ab02_oscar_hip_1p6mps_lg_exo_on,AB02_Oscar::LG_1p6mps,AB02_Oscar,LG,LG_1p6mps,0.20374301226870067,0.8204413651276348,-0.23206250199998024,gpio_falling_edge
+ab02_oscar_hip_0p8mps_ra_exo_on,AB02_Oscar::RA_0p8mps,AB02_Oscar,RA,RA_0p8mps,0.18901301879914362,0.7987924934372992,-0.23604987100002384,gpio_falling_edge

@@ -1,0 +1,26 @@
+{
+  "base_config": "0512_ik_id_clean_base_config.json",
+  "configs": [
+    {
+      "name": "0512_ik_id_hip_knee_offline_zero_phase",
+      "input_mode": "sagittal_hip_knee",
+      "output_mode": "sagittal_hip_knee",
+      "input_lowpass_mode": "zero_phase",
+      "output_lowpass_mode": "zero_phase"
+    },
+    {
+      "name": "0512_ik_id_hip_ankle_offline_zero_phase",
+      "input_mode": "sagittal_hip_ankle",
+      "output_mode": "sagittal_hip_ankle",
+      "input_lowpass_mode": "zero_phase",
+      "output_lowpass_mode": "zero_phase"
+    },
+    {
+      "name": "0512_ik_id_knee_ankle_offline_zero_phase",
+      "input_mode": "sagittal_knee_ankle",
+      "output_mode": "sagittal_knee_ankle",
+      "input_lowpass_mode": "zero_phase",
+      "output_lowpass_mode": "zero_phase"
+    }
+  ]
+}

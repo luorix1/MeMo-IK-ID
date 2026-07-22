@@ -1,4 +1,4 @@
-trial,trial_key,subject,task,condition,rmse_nmpkg,r2_nmpkg,offset_s
-ab05_maria_hip_0p8mps_lg_exo_on,AB05_Maria::LG_0p8mps,AB05_Maria,LG,LG_0p8mps,0.2014405365771312,0.5153337735071821,-0.22906030199998795
-ab05_maria_hip_1p2mps_lg_exo_on,AB05_Maria::LG_1p2mps,AB05_Maria,LG,LG_1p2mps,0.11277522325725667,0.9085123407155287,-0.23603926199990477
-ab05_maria_hip_0p8mps_ra_exo_on,AB05_Maria::RA_0p8mps,AB05_Maria,RA,RA_0p8mps,0.13250383885728953,0.8907588072261265,-0.12605654900001007
+trial,trial_key,subject,task,condition,rmse_nmpkg,r2_nmpkg,offset_s,sync_method
+ab05_maria_hip_0p8mps_lg_exo_on,AB05_Maria::LG_0p8mps,AB05_Maria,LG,LG_0p8mps,0.2014405365771312,0.5153337735071821,-0.22906030199998795,gpio_falling_edge
+ab05_maria_hip_1p2mps_lg_exo_on,AB05_Maria::LG_1p2mps,AB05_Maria,LG,LG_1p2mps,0.11277522325725667,0.9085123407155287,-0.23603926199990477,gpio_falling_edge
+ab05_maria_hip_0p8mps_ra_exo_on,AB05_Maria::RA_0p8mps,AB05_Maria,RA,RA_0p8mps,0.13250383885728953,0.8907588072261265,-0.12605654900001007,gpio_falling_edge

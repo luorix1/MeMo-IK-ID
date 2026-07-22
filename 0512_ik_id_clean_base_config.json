@@ -1,5 +1,5 @@
 {
-  "train_dir": "/media/metamobility3/Samsung_T5/Processed/AddBiomechanics_final/",
+  "train_dir": "/media/metamobility3/Samsung_T52/Processed/AddBiomechanics_final/",
   "output_dir": "runs/0512_ik_id_clean_base",
   "window_size": 100,
   "stride": 1,
