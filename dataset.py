@@ -481,21 +481,34 @@ def _subject_num(subject_id: str) -> int:
     return int(m.group()) if m else 0
 
 
-def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
-    """Remove known bad-quality datasets from AddBiomechanics during loading."""
+def subject_id_excluded(subject_id: str, policy: str = "legacy") -> bool:
+    """Return whether a subject is excluded by a named data-quality policy.
+
+    ``legacy`` preserves the historical temporary S057+ block. ``documented``
+    excludes only cohorts called out by the existing AddBiomechanics audit.
+    ``none`` leaves cohort selection to an explicit manifest.
+    """
     n = _subject_num(subject_id)
-    # Falisse2017, Moore2015, Tan2021, Hamner2013
-    # if 386 <= n <= 426:
-    #     return True
-    # # Tiziana2019, Ulrich2023
-    # if 444 <= n <= 503:
-    #     return True
-    # # vanderZee2022
-    # if 513 <= n <= 522:
-    #     return True
-    if n >= 57:
-        return True
-    return False
+    policy_norm = str(policy).strip().lower()
+    if policy_norm == "legacy":
+        return n >= 57
+    if policy_norm == "documented":
+        return (
+            386 <= n <= 426
+            or 444 <= n <= 493
+            or 513 <= n <= 522
+        )
+    if policy_norm == "none":
+        return False
+    raise ValueError(
+        "subject exclusion policy must be one of: legacy, documented, none; "
+        f"got {policy!r}"
+    )
+
+
+def _subject_id_excluded_temp_broken_h5(subject_id: str) -> bool:
+    """Backward-compatible wrapper for the historical S057+ exclusion."""
+    return subject_id_excluded(subject_id, policy="legacy")
 
 
 LOC_RAMP_BUCKET_KEYS: Tuple[str, ...] = ("RA", "RD", "RA/RD")
@@ -516,6 +529,7 @@ def include_condition_for_dataset(
     ra_rd_only: bool = False,
     loc_map: Optional[Dict[Tuple[str, str, str], str]] = None,
     trial_name: Optional[str] = None,
+    task_mode: Optional[str] = None,
 ) -> bool:
     """Whether to include an H5 group / trial-folder condition in KineticsTCNDataset.
 
@@ -538,17 +552,30 @@ def include_condition_for_dataset(
     When ``ra_rd_only=True``, only trials whose :func:`classify_loc_bucket` label is
     RA, RD, or RA/RD are kept. Requires ``trial_name``; uses ``loc_map`` when provided.
     """
-    if levelground_only:
+    task_mode_norm = (
+        ("walk" if walking_only else "all")
+        if task_mode is None
+        else str(task_mode).strip().lower()
+    )
+    if task_mode_norm not in {"walk", "run", "all"}:
+        raise ValueError(f"task_mode must be walk, run, or all; got {task_mode!r}")
+    name_has_run = (
+        "run" in (condition_name or "").lower()
+        or (trial_name is not None and "run" in (trial_name or "").lower())
+    )
+
+    if task_mode_norm == "run":
+        if not name_has_run:
+            return False
+    elif levelground_only:
         if not is_levelground_subset_condition(condition_name):
             return False
-    elif walking_only and _subject_num(subject_id) <= 56:
+    elif task_mode_norm == "walk" and _subject_num(subject_id) <= 56:
         if not is_walking_condition(Path(condition_name)):
             return False
 
-    if walking_only:
-        if "run" in (condition_name or "").lower():
-            return False
-        if trial_name is not None and "run" in (trial_name or "").lower():
+    if task_mode_norm == "walk":
+        if name_has_run:
             return False
 
     if exclude_stair_tasks and is_stair_task_condition(condition_name):
@@ -1802,6 +1829,8 @@ class KineticsTCNDataset(Dataset):
         balance_loc_buckets_oversample: bool = False,
         loc_bucket_balance_seed: Optional[int] = None,
         loc_ascent_descent_map: Optional[str] = None,
+        task_mode: Optional[str] = None,
+        subject_exclusion_policy: str = "legacy",
     ):
         if data_dir is None:
             raise ValueError("data_dir must point to processed Camargo root")
@@ -1863,6 +1892,18 @@ class KineticsTCNDataset(Dataset):
         self.laterality = normalize_laterality(laterality)
         self._use_unilateral_flip = self.laterality == "unilateral"
         self.walking_only = bool(walking_only)
+        self.task_mode = (
+            ("walk" if self.walking_only else "all")
+            if task_mode is None
+            else str(task_mode).strip().lower()
+        )
+        if self.task_mode not in {"walk", "run", "all"}:
+            raise ValueError(
+                f"task_mode must be walk, run, or all; got {task_mode!r}"
+            )
+        self.subject_exclusion_policy = str(subject_exclusion_policy).strip().lower()
+        # Validate once, including when no subjects are ultimately discovered.
+        subject_id_excluded("S000", self.subject_exclusion_policy)
 
         self._pair_in_r: Optional[List[int]] = None
         self._pair_in_l: Optional[List[int]] = None
@@ -1963,7 +2004,7 @@ class KineticsTCNDataset(Dataset):
                 refs: List[Tuple[str, str, str, str]] = []
                 for p in sorted([Path(x) for x in b3d_files]):
                     sid = extract_subject_id(p)
-                    if _subject_id_excluded_temp_broken_h5(sid):
+                    if subject_id_excluded(sid, self.subject_exclusion_policy):
                         continue
                     cond = p.parent.name
                     trial = p.name
@@ -1976,6 +2017,7 @@ class KineticsTCNDataset(Dataset):
                         ra_rd_only=self.ra_rd_only,
                         loc_map=self._loc_bucket_map,
                         trial_name=trial,
+                        task_mode=self.task_mode,
                     ):
                         continue
                     subject_h5_path = Path(self.h5_dir) / f"{sid}.h5"
@@ -1986,7 +2028,7 @@ class KineticsTCNDataset(Dataset):
                 refs = []
                 for subject_h5_path in sorted(Path(self.h5_dir).glob("S*.h5")):
                     sid = subject_h5_path.stem.upper()
-                    if _subject_id_excluded_temp_broken_h5(sid):
+                    if subject_id_excluded(sid, self.subject_exclusion_policy):
                         continue
                     if subject_ids_norm is not None and sid not in set(subject_ids_norm):
                         continue
@@ -2002,6 +2044,7 @@ class KineticsTCNDataset(Dataset):
                                     ra_rd_only=self.ra_rd_only,
                                     loc_map=self._loc_bucket_map,
                                     trial_name=trial,
+                                    task_mode=self.task_mode,
                                 ):
                                     continue
                                 refs.append((sid, cond, trial, str(subject_h5_path)))
@@ -2038,7 +2081,11 @@ class KineticsTCNDataset(Dataset):
             trial_dirs = [
                 td
                 for td in trial_dirs
-                if (not _subject_id_excluded_temp_broken_h5(extract_subject_id(td)))
+                if (
+                    not subject_id_excluded(
+                        extract_subject_id(td), self.subject_exclusion_policy
+                    )
+                )
                 and include_condition_for_dataset(
                     td.parent.name,
                     walking_only=self.walking_only,
@@ -2048,6 +2095,7 @@ class KineticsTCNDataset(Dataset):
                     ra_rd_only=self.ra_rd_only,
                     loc_map=self._loc_bucket_map,
                     trial_name=td.name,
+                    task_mode=self.task_mode,
                 )
             ]
             if max_files is not None:

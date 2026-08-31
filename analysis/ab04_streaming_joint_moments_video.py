@@ -40,6 +40,18 @@ PALETTE = {
     "est": "#e53935",
 }
 
+# Right-side joint channels in process_awinda.npz (id/pred_nmpkg columns)
+AWINDA_JOINT_CHANNELS = {
+    "hip": 0,
+    "knee": 1,
+    "ankle": 2,
+}
+AWINDA_JOINT_LABELS = {
+    "hip": "hip flexion R",
+    "knee": "knee angle R",
+    "ankle": "ankle angle R",
+}
+
 DATASETS = {
     "hip-exo": {
         "label": "Hip exo — hip flexion R",
@@ -77,6 +89,8 @@ class TrialWaveform:
     t: np.ndarray
     gt_nmpkg: np.ndarray
     est_nmpkg: np.ndarray
+    joint: str | None = None
+    subject: str | None = None
 
 
 def analysis_trim_mask(t: np.ndarray) -> np.ndarray:
@@ -91,6 +105,9 @@ def _trim_waveform(
     t: np.ndarray,
     gt: np.ndarray,
     est: np.ndarray,
+    *,
+    joint: str | None = None,
+    subject: str | None = None,
 ) -> TrialWaveform:
     keep = analysis_trim_mask(t)
     if not np.any(keep):
@@ -102,6 +119,8 @@ def _trim_waveform(
         t=t_trim,
         gt_nmpkg=np.asarray(gt[keep], dtype=np.float64),
         est_nmpkg=np.asarray(est[keep], dtype=np.float64),
+        joint=joint,
+        subject=subject,
     )
 
 
@@ -123,14 +142,29 @@ def _load_knee_trial(condition: str) -> TrialWaveform:
     return _trim_waveform("knee-exo", condition, t, gt, est)
 
 
-def _load_awinda_trial(condition: str) -> TrialWaveform:
-    trial_key = f"{SUBJECT}::{condition}"
-    prefix = trial_key.replace("::", "__")
+def _load_awinda_trial(
+    condition: str,
+    *,
+    joint: str = "hip",
+    subject: str = SUBJECT,
+) -> TrialWaveform:
+    if joint not in AWINDA_JOINT_CHANNELS:
+        raise ValueError(f"Unknown awinda joint '{joint}'; expected one of {list(AWINDA_JOINT_CHANNELS)}")
+    ch = AWINDA_JOINT_CHANNELS[joint]
+    prefix = f"{subject}__{condition}"
     data = np.load(CACHE_DIR / "process_awinda.npz", allow_pickle=True)
     t = data[f"{prefix}__t"]
-    gt = data[f"{prefix}__id_nmpkg"][:, 0]
-    est = data[f"{prefix}__pred_nmpkg"][:, 0]
-    return _trim_waveform("awinda", condition, t, gt, est)
+    gt = data[f"{prefix}__id_nmpkg"][:, ch]
+    est = data[f"{prefix}__pred_nmpkg"][:, ch]
+    return _trim_waveform(
+        "awinda",
+        condition,
+        t,
+        gt,
+        est,
+        joint=joint,
+        subject=subject,
+    )
 
 
 def load_trial_waveform(dataset: str, condition: str) -> TrialWaveform:
@@ -142,6 +176,18 @@ def load_trial_waveform(dataset: str, condition: str) -> TrialWaveform:
     if source == "awinda_npz":
         return _load_awinda_trial(condition)
     raise ValueError(source)
+
+
+def load_awinda_joint_waveforms(
+    condition: str,
+    joints: List[str],
+    *,
+    subject: str = SUBJECT,
+) -> List[TrialWaveform]:
+    return [
+        _load_awinda_trial(condition, joint=joint, subject=subject)
+        for joint in joints
+    ]
 
 
 def load_waveforms_for_trials(
@@ -377,6 +423,42 @@ AB04_SELECTED_TRIALS = [
 ]
 
 
+def render_awinda_lg12_joint_videos(
+    out_dir: Path,
+    *,
+    subject: str = SUBJECT,
+    condition: str = "LG_1p2mps",
+    joints: List[str] | None = None,
+    fps: int = FPS,
+    view_window_sec: float = VIEW_WINDOW_SEC,
+    combined_only: bool = False,
+) -> None:
+    """One streaming video per joint (hip/knee/ankle) for an Awinda LG trial."""
+    joints = list(joints or list(AWINDA_JOINT_CHANNELS.keys()))
+    waves = load_awinda_joint_waveforms(condition, joints, subject=subject)
+    subj_slug = subject.lower()
+    print(
+        f"{subject} {condition}: "
+        + ", ".join(
+            f"{w.joint} ({w.t[-1]:.1f}s, {AWINDA_JOINT_LABELS[w.joint]})"
+            for w in waves
+        )
+    )
+
+    panels_path = out_dir / f"{subj_slug}_awinda_{condition.lower()}_hip_knee_ankle_streaming{VIDEO_EXT}"
+    render_panels_video(waves, panels_path, fps=fps, view_window_sec=view_window_sec)
+
+    if combined_only:
+        return
+
+    for wave in waves:
+        trial_path = (
+            out_dir
+            / f"{subj_slug}_awinda_{condition.lower()}_{wave.joint}_streaming{VIDEO_EXT}"
+        )
+        render_dataset_video([wave], trial_path, fps=fps, view_window_sec=view_window_sec)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -399,9 +481,37 @@ def main() -> None:
         action="store_true",
         help="Render AB04 preset: knee RA 0.8, hip RA 0.8, hip LG 1.2",
     )
+    parser.add_argument(
+        "--awinda-lg12-joints",
+        action="store_true",
+        help="Render Awinda LG 1.2 m/s hip, knee, and ankle streaming videos",
+    )
+    parser.add_argument(
+        "--subject",
+        default=SUBJECT,
+        help="Subject id for --awinda-lg12-joints (default: AB04_Changseob)",
+    )
+    parser.add_argument(
+        "--joints",
+        nargs="+",
+        default=["hip", "knee", "ankle"],
+        choices=list(AWINDA_JOINT_CHANNELS.keys()),
+        help="Joints for --awinda-lg12-joints",
+    )
     args = parser.parse_args()
 
     view_window_sec = float(args.view_window)
+
+    if args.awinda_lg12_joints:
+        render_awinda_lg12_joint_videos(
+            args.out_dir,
+            subject=args.subject,
+            joints=args.joints,
+            fps=args.fps,
+            view_window_sec=view_window_sec,
+            combined_only=args.combined_only,
+        )
+        return
 
     if args.selected or args.trials:
         trial_specs = (

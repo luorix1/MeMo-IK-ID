@@ -1,0 +1,19 @@
+# ankle-exo-ctrl runtime + TCN deploy helpers
+# Install on Jetson (or matching CUDA env):
+#   pip install -r requirements.txt
+#
+# TensorRT is provided by the Jetson system package (not usually pip).
+# Jetson.GPIO is optional (sync pulses); install via NVIDIA/JetPack if needed.
+#
+# Motors: Robstride RS-0x over SocketCAN (see robstride_dynamics/, from Ankle_Exo).
+
+numpy
+PyYAML
+python-can
+typing_extensions
+tqdm
+
+# TCN / TRT path (cascade_uni, pt2trt, offline eval)
+torch
+scipy
+matplotlib

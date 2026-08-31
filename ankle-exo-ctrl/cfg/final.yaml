@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------
+# Unilateral Ankle Cascade Controller — Config
+# Controller : cascade_uni
+# Model      : os_kinetics TCN (sagittal_ankle, unilateral)
+# Hardware   : Robstride RS-02 (Ankle_Exo robstride_dynamics)
+#
+# Model input  : (1, 2, frame_length)
+#   ch0 — ankle encoder angle  (rad, sign-corrected)
+#   ch1 — ankle angular velocity: d(encoder)/dt (rad/s)
+# Model output : (1, 1) → ankle joint moment (Nm/kg) × mass × scale → Nm
+# ---------------------------------------------------------------
+
+trial_name: "ankle_cascade_01"
+exo_on: false
+trigger_type: "typing"
+
+# cascade_uni is unilateral — "right" or "left" only
+side: "right"
+
+controller_name: "cascade_uni"
+# Convert with: python utils/pt2trt.py --pt ../checkpoints/ankle/best_model.pt
+trt_engine_path: "../best_model.trt"
+
+frame_length: 100
+input_size: 2
+output_size: 1
+fs: 100
+exp_time_sec: 80
+
+mass: 90.0
+scale: 0.10
+torque_limit: 15.0
+
+delay: 0
+
+input_lpf_enabled: true
+angle_lpf_hz: 6
+angle_lpf_order: 4
+vel_lpf_hz: 15
+vel_lpf_order: 4
+out_lpf_hz: 6
+out_lpf_order: 4
+
+ankle_angle_mean: 0.0
+ankle_angle_std: 1.0
+ankle_vel_mean: 0.0
+ankle_vel_std: 1.0
+
+vel_source: encoder_diff
+
+# Quick ankle-angle zero: mean of first zero_frames (~1 s @ fs=100)
+zero_ankle_angle: true
+zero_frames: 100
+
+# ---- Robstride hardware ----
+motor_backend: robstride
+motor_model: rs-02
+can_channel: "can0"
+can_bitrate: 1000000
+can_id_R: 1
+can_id_L: 2
+invert_right_encoder: false
+invert_right_torque_cmd: false
+invert_left_encoder: false
+invert_left_torque_cmd: false
+
+teleplot_ip: "127.0.0.1"
+teleplot_port: 47269
+
+GPIO_OUTPUT_PIN: 7
+PULSE_WIDTH_SEC: 0.2
+GPIO_START_DELAY_SEC: 2.0
+
+mocap_server_ip: "172.24.44.177"
+mocap_server_port: 10

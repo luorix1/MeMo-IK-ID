@@ -1,4 +1,4 @@
 joint,channel,n,median_delta_rmse,mean_delta_rmse,cohen_d_rmse,wilcoxon_p_rmse_single_worse,ttest_p_rmse_single_worse,sig_rmse_wilcoxon,median_delta_r2,mean_delta_r2,cohen_d_r2,wilcoxon_p_r2_single_worse,ttest_p_r2_single_worse,sig_r2_wilcoxon
-ankle,ankle_angle_r,39,0.0491,0.0598,0.8974,0.0,0.0,True,-0.0347,-0.0766,-0.6346,0.0,0.0002,True
-hip,hip_flexion_r,39,0.0072,0.0041,0.069,0.2694,0.3345,False,-0.0238,-0.0632,-0.465,0.0124,0.0031,True
-knee,knee_angle_r,39,0.0259,0.0313,0.6394,0.0001,0.0001,True,-0.0514,-0.0812,-0.627,0.0,0.0002,True
+ankle,ankle_angle_r,39,0.0491,0.0598,0.8974,0.0,0.0,True,-0.0481,-0.0841,-0.7036,0.0,0.0,True
+hip,hip_flexion_r,39,0.0072,0.0041,0.069,0.2694,0.3345,False,-0.013,-0.0428,-0.1849,0.1511,0.1277,False
+knee,knee_angle_r,39,0.0259,0.0313,0.6394,0.0001,0.0001,True,-0.0867,-0.1936,-0.5689,0.0,0.0005,True

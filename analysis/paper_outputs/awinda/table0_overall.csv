@@ -1,2 +1,2 @@
 n_pairs,n_trials,n_subjects,rmse_full_mean,rmse_single_mean,delta_rmse_median,r2_full_mean,r2_single_mean,delta_r2_median,frac_single_worse_rmse,frac_single_worse_r2
-234,39,8,0.1469,0.1775,0.0289,0.8523,0.7778,-0.0421,0.735,0.7393
+234,39,8,0.1469,0.1775,0.0289,0.742,0.6256,-0.0531,0.735,0.735

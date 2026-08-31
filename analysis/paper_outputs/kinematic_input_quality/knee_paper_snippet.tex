@@ -1,0 +1,6 @@
+% Knee exoskeleton — kinematic input quality (from analysis/paper_outputs/knee_exo)
+Encoder replay (deployed sensor inputs offline): RMSE 0.192 ± 0.039~Nm/kg, $R^2$ 0.615 ± 0.141.
+Vicon IK oracle (same TCN checkpoint): RMSE 0.153 ± 0.036~Nm/kg, $R^2$ 0.740 ± 0.158
+(20.3\% RMSE reduction, absolute $R^2$ increase 0.125).
+Ramp ascent: encoder RMSE 0.168~Nm/kg, $R^2$ 0.651; Vicon RMSE 0.135~Nm/kg, $R^2$ 0.765.
+Ramp descent: encoder RMSE 0.217~Nm/kg, $R^2$ 0.580; Vicon RMSE 0.172~Nm/kg, $R^2$ 0.714.
